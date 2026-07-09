@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: maeumseojae
+    runtime: node
+    plan: starter          # 영구 디스크는 유료 플랜에서만 붙일 수 있다. free 로 두면 재시작 시 데이터가 사라진다.
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data   # 아래 디스크 마운트 경로와 반드시 같아야 한다.
+    disk:
+      name: maeumseojae-data
+      mountPath: /var/data
+      sizeGB: 1
