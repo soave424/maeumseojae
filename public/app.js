@@ -480,59 +480,101 @@ async function submitCheckin() {
   }
 }
 
-// ── 수익화: 시그니처 경험 & 마스터 ────────────────
+// ── 수익화: 시그니처 경험 · 마스터 · 멤버십 ────────
+function expCardHTML(p) {
+  return `
+    <article class="exp-card" data-prog="${p.id}">
+      <div class="exp-top" style="--c:${p.id === 'tour' ? '#7FA86B' : '#C98A86'}">
+        <span class="exp-badge">${esc(p.badge)}</span>
+        <span class="exp-ic">${p.icon}</span>
+      </div>
+      <div class="exp-body">
+        <div class="exp-kind">${esc(p.kind)}</div>
+        <h3>${esc(p.title)}</h3>
+        <p class="exp-tag">${esc(p.tagline)}</p>
+        <p class="exp-desc">${esc(p.desc)}</p>
+        <div class="exp-foot">
+          <span class="exp-price">${esc(p.price)}</span>
+          <button class="btn small sage" data-open="${p.id}">자세히 보기</button>
+        </div>
+      </div>
+    </article>`;
+}
+function masterCardHTML(m) {
+  return `
+    <article class="master-card" style="--c:${m.color}">
+      <div class="mc-avatar">${m.avatar ? `<img src="${m.avatar}" alt="" width="66" height="66">` : '🧑'}</div>
+      <div class="mc-role">${esc(m.role)} · ${esc(m.field)}</div>
+      <h3 class="mc-name serif">${esc(m.name)}</h3>
+      <p class="mc-tag">${esc(m.tagline)}</p>
+      <p class="mc-bio">${esc(m.bio)}</p>
+      <div class="mc-leads">🤝 ${esc(m.leads)}</div>
+    </article>`;
+}
+function tierHTML(m) {
+  const featured = !!m.badge;
+  return `
+    <article class="tier ${featured ? 'featured' : ''}" style="--c:${m.accent}">
+      ${m.badge ? `<div class="tier-badge">${esc(m.badge)}</div>` : ''}
+      <div class="tier-name">${esc(m.name)}</div>
+      <div class="tier-price">${esc(m.price)}<small>${esc(m.period || '')}</small></div>
+      <div class="tier-tag">${esc(m.tagline)}</div>
+      <ul class="tier-feats">${m.features.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+      <button class="btn ${featured ? 'sage' : 'ghost'}" data-mem="${m.id}">${m.interested ? '✓ 신청됨' : esc(m.cta)}</button>
+    </article>`;
+}
+
 async function renderPrograms(root) {
   if (!root) return;
-  let programs;
-  try { ({ programs } = await api('/api/programs')); } catch { return; }
-  const exp = programs.filter(p => p.kind === '시그니처 경험');
-  const master = programs.find(p => p.kind === '마스터 멤버십');
+  let programs = [], masters = [], memberships = [];
+  try {
+    const [a, b, c] = await Promise.all([api('/api/programs'), api('/api/masters'), api('/api/memberships')]);
+    programs = a.programs; masters = b.masters; memberships = c.memberships;
+  } catch { return; }
 
   root.innerHTML = `
-    <div class="sec-head">
-      <div>
-        <h2 class="sec-title serif">마음서재가 준비한 경험</h2>
-        <p class="sec-sub">화면 밖에서도 이어지는 독서. 감정에서 출발하는 오프라인 경험과 멤버십.</p>
-      </div>
+    <div class="sec-head"><div>
+      <h2 class="sec-title serif">마음서재가 준비한 경험</h2>
+      <p class="sec-sub">화면 밖에서도 이어지는 독서. 감정에서 출발하는 오프라인 경험.</p>
+    </div></div>
+    <div class="exp-grid">${programs.map(expCardHTML).join('')}</div>
+
+    <div class="sec-head"><div>
+      <h2 class="sec-title serif">마을을 이끄는 마스터</h2>
+      <p class="sec-sub">각 감정 마을에는, 그 길을 먼저 걸어 본 안내자가 있어요.</p>
+    </div></div>
+    <div class="carousel">
+      <button class="caro-arrow" data-caro="-1" aria-label="이전">‹</button>
+      <div class="caro-track" id="masterTrack">${masters.map(masterCardHTML).join('')}</div>
+      <button class="caro-arrow" data-caro="1" aria-label="다음">›</button>
     </div>
-    <div class="exp-grid">
-      ${exp.map(p => `
-        <article class="exp-card" data-prog="${p.id}">
-          <div class="exp-top" style="--c:${p.id === 'tour' ? '#7FA86B' : '#C98A86'}">
-            <span class="exp-badge">${esc(p.badge)}</span>
-            <span class="exp-ic">${p.icon}</span>
-          </div>
-          <div class="exp-body">
-            <div class="exp-kind">${esc(p.kind)}</div>
-            <h3>${esc(p.title)}</h3>
-            <p class="exp-tag">${esc(p.tagline)}</p>
-            <p class="exp-desc">${esc(p.desc)}</p>
-            <div class="exp-foot">
-              <span class="exp-price">${esc(p.price)}</span>
-              <button class="btn small sage" data-open="${p.id}">자세히 보기</button>
-            </div>
-          </div>
-        </article>`).join('')}
-    </div>
-    ${master ? `
-      <article class="master-band" data-prog="${master.id}">
-        <div class="mb-left">
-          <div class="exp-kind">${esc(master.kind)}</div>
-          <h3>${master.icon} ${esc(master.title)}</h3>
-          <p class="exp-tag">${esc(master.tagline)}</p>
-          <ul class="mb-includes">${master.includes.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
-        </div>
-        <div class="mb-right">
-          <div class="mb-price">${esc(master.price)}</div>
-          <div class="mb-dur">${esc(master.duration)}</div>
-          <button class="btn sage" data-open="${master.id}">마스터 되기</button>
-          ${master.interestCount ? `<div class="mb-count">${master.interestCount}명이 기다리는 중</div>` : ''}
-        </div>
-      </article>` : ''}`;
+
+    <div class="sec-head"><div>
+      <h2 class="sec-title serif">멤버십</h2>
+      <p class="sec-sub">가볍게 시작하고, 필요할 때 더 깊이. 세 단계 중에 골라요.</p>
+    </div></div>
+    <div class="tier-grid">${memberships.map(tierHTML).join('')}</div>`;
 
   root.querySelectorAll('[data-open]').forEach(btn => {
     btn.onclick = () => openProgramModal(programs.find(p => p.id === btn.dataset.open));
   });
+  const track = root.querySelector('#masterTrack');
+  root.querySelectorAll('[data-caro]').forEach(b => b.onclick = () => {
+    const card = track.querySelector('.master-card');
+    const dx = (card ? card.offsetWidth + 14 : 280) * Number(b.dataset.caro);
+    track.scrollBy({ left: dx, behavior: 'smooth' });
+  });
+  root.querySelectorAll('[data-mem]').forEach(btn => btn.onclick = () => onMembership(btn.dataset.mem));
+}
+
+async function onMembership(id) {
+  if (!state.me) return openAuthModal();
+  if (id === 'free') { toast('이미 무료로 함께하고 있어요 🌱'); return; }
+  try {
+    const { interested } = await api(`/api/interest/${id}`, { method: 'POST' });
+    toast(interested ? '오픈 소식을 먼저 알려드릴게요 💌' : '신청을 취소했어요.');
+    const home = view.querySelector('#programs'); if (home) renderPrograms(home);
+  } catch (err) { toast(err.message); }
 }
 
 function openProgramModal(p) {
@@ -563,7 +605,7 @@ function openProgramModal(p) {
   back.querySelector('#pmInterest').onclick = async () => {
     if (!state.me) { close(); return openAuthModal(); }
     try {
-      const { interested } = await api(`/api/programs/${p.id}/interest`, { method: 'POST' });
+      const { interested } = await api(`/api/interest/${p.id}`, { method: 'POST' });
       p.interested = interested;
       const b = back.querySelector('#pmInterest');
       b.textContent = interested ? '✓ 오픈 알림 신청됨' : '오픈 소식 먼저 받기';

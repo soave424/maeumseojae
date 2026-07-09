@@ -9,7 +9,7 @@ import {
   isClean, findBadWords, rateLimit,
   detectCrisis, classifySituations, measureIntensity, HELPLINES
 } from './moderation.js';
-import { seedIfEmpty, MOODS, VILLAGES, MODES, STAGES, BUTTERFLIES, POINT_RULES, PROGRAMS, HASHTAGS, SUGGEST, CLASSIC_QUOTES } from './seed.js';
+import { seedIfEmpty, MOODS, VILLAGES, MODES, STAGES, BUTTERFLIES, POINT_RULES, PROGRAMS, MASTERS, MEMBERSHIPS, HASHTAGS, SUGGEST, CLASSIC_QUOTES } from './seed.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -708,21 +708,35 @@ app.get('/api/copies', requireAuth, (req, res) => {
   res.json({ copies: list });
 });
 
-// ---------- 수익화: 시그니처 경험 & 마스터 (§8 수익원) ----------
+// ---------- 수익화: 시그니처 경험 · 마스터 · 멤버십 (§8 수익원) ----------
+const withInterest = (list, me) => list.map(p => ({
+  ...p,
+  interested: me ? D().interests.some(i => i.userId === me.id && i.programId === p.id) : false,
+  interestCount: D().interests.filter(i => i.programId === p.id).length
+}));
+
 app.get('/api/programs', (req, res) => {
-  const me = currentUser(req);
-  const list = PROGRAMS.map(p => ({
-    ...p,
-    interested: me ? D().interests.some(i => i.userId === me.id && i.programId === p.id) : false,
-    interestCount: D().interests.filter(i => i.programId === p.id).length
-  }));
-  res.json({ programs: list });
+  res.json({ programs: withInterest(PROGRAMS, currentUser(req)) });
 });
 
-// 관심 등록(리드). 결제 연동 전 단계 — 오픈 알림 신청으로 처리한다.
-app.post('/api/programs/:id/interest', requireAuth, (req, res) => {
+app.get('/api/masters', (req, res) => {
+  // 마을 마스코트를 아바타로 붙여 준다
+  const list = MASTERS.map(m => {
+    const v = VILLAGES.find(v => v.key === m.village);
+    return { ...m, avatar: v?.char || null, color: v?.color || '#9A8F7E', villageName: v?.name || '' };
+  });
+  res.json({ masters: list });
+});
+
+app.get('/api/memberships', (req, res) => {
+  res.json({ memberships: withInterest(MEMBERSHIPS, currentUser(req)) });
+});
+
+// 관심 등록(리드) — 프로그램·멤버십 공용. 결제 연동 전 단계.
+const INTEREST_IDS = new Set([...PROGRAMS.map(p => p.id), ...MEMBERSHIPS.map(m => m.id)]);
+app.post('/api/interest/:id', requireAuth, (req, res) => {
   const id = String(req.params.id);
-  if (!PROGRAMS.some(p => p.id === id)) return res.status(404).json({ error: '해당 프로그램을 찾을 수 없습니다.' });
+  if (!INTEREST_IDS.has(id)) return res.status(404).json({ error: '해당 상품을 찾을 수 없습니다.' });
   const existing = D().interests.find(i => i.userId === req.user.id && i.programId === id);
   if (existing) {
     D().interests = D().interests.filter(i => !(i.userId === req.user.id && i.programId === id));
