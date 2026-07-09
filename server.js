@@ -21,7 +21,10 @@ if (PROD) app.set('trust proxy', 1);
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public')));
+// HTML은 항상 재검증(캐시된 옛 화면 방지), 나머지 정적파일은 ETag로 재검증
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); }
+}));
 
 seedIfEmpty();
 
@@ -768,6 +771,7 @@ app.get('/api/hashtags', (req, res) => {
 
 // SPA fallback
 app.get('*', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
