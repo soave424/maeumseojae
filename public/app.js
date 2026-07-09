@@ -569,7 +569,6 @@ async function renderPrograms(root) {
 
 async function onMembership(id) {
   if (!state.me) return openAuthModal();
-  if (id === 'free') { toast('이미 무료로 함께하고 있어요 🌱'); return; }
   try {
     const { interested } = await api(`/api/interest/${id}`, { method: 'POST' });
     toast(interested ? '오픈 소식을 먼저 알려드릴게요 💌' : '신청을 취소했어요.');
