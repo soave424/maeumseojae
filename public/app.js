@@ -180,9 +180,24 @@ function renderAuth() {
       toast('안녕히 가세요. 서재는 늘 여기 있어요.');
     };
   } else {
-    authEl.innerHTML = `<button class="btn small" id="login">시작하기</button>`;
+    authEl.innerHTML = `
+      <button class="btn ghost small" id="demo">체험하기</button>
+      <button class="btn small" id="login">시작하기</button>`;
+    document.getElementById('demo').onclick = () => demoLogin();
     document.getElementById('login').onclick = () => openAuthModal();
   }
+}
+
+// 가입 없이 test 계정으로 바로 둘러보기
+async function demoLogin(after) {
+  try {
+    const { user } = await api('/api/login', { method: 'POST', body: { username: 'test', password: 'test' } });
+    state.me = user;
+    await loadSaves();
+    renderAuth();
+    toast('체험 계정으로 둘러보는 중이에요 🌿');
+    after ? after() : route();
+  } catch (err) { toast(err.message || '체험 계정을 열 수 없어요.'); }
 }
 
 function openAuthModal(afterLogin) {
@@ -210,8 +225,12 @@ function openAuthModal(afterLogin) {
           ${isLogin ? '처음이신가요?' : '이미 계정이 있으신가요?'}
           <button class="linkish" id="swap">${isLogin ? '가입하기' : '로그인'}</button>
         </p>
+        <div class="demo-divider"><span>또는</span></div>
+        <button class="btn ghost" style="width:100%" id="demoBtn">🌿 체험 계정으로 바로 둘러보기</button>
+        <p class="hint center" style="margin-top:6px">가입 없이 <b>test</b> 계정으로 로그인해요</p>
       </div>`;
     back.querySelector('#swap').onclick = () => { mode = isLogin ? 'register' : 'login'; draw(); };
+    back.querySelector('#demoBtn').onclick = () => demoLogin(afterLogin ? (() => { close(); afterLogin(); }) : (() => close()));
     back.querySelector('#af').onsubmit = async e => {
       e.preventDefault();
       const fd = Object.fromEntries(new FormData(e.target));

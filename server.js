@@ -28,6 +28,36 @@ app.use(express.static(path.join(__dirname, 'public'), {
 
 seedIfEmpty();
 
+// 로그인 없이 둘러볼 수 있는 체험 계정 (test / test). 없으면 만들어 둔다.
+function ensureDemoUser() {
+  const d = db.data;
+  if (d.users.some(u => u.username === 'test')) return;
+  const uid = d.seq++;
+  const now = Date.now();
+  d.users.push({
+    id: uid, username: 'test', nickname: '체험이', plan: 'free',
+    points: 60, charName: '토리',
+    pointLog: [
+      { amount: 15, reason: '필사 완성', at: now - 3600e3 },
+      { amount: 20, reason: '10분 독서', at: now - 7200e3 },
+      { amount: 10, reason: '감정 체크인', at: now - 86400e3 }
+    ],
+    rewardedKeys: [],
+    passwordHash: bcrypt.hashSync('test', 10), createdAt: now - 3 * 86400e3
+  });
+  // 데모용 초기 데이터: 책 3권을 서로 다른 마을로 담아두기
+  const adult = d.books.filter(b => b.audience === 'adult');
+  const pick = emo => adult.find(b => b.emotion === emo);
+  [['불안', '고요'], ['위로', '위로'], ['도전', '용기']].forEach(([emo, vil], i) => {
+    const b = pick(emo);
+    if (b) d.saves.push({ userId: uid, bookId: b.id, destinationVillage: vil, createdAt: now - i * 86400e3 });
+  });
+  d.checkins.push({ id: d.seq++, userId: uid, emotion: '불안', note: '', situations: [], intensity: 1, destination: '고요', customDestination: null, bookIds: [], createdAt: now - 86400e3 });
+  d.checkins.push({ id: d.seq++, userId: uid, emotion: '설렘', note: '', situations: [], intensity: 1, destination: '설렘', customDestination: null, bookIds: [], createdAt: now });
+  db.save(true);
+}
+ensureDemoUser();
+
 // 세션 쿠키 — 배포(HTTPS)에서는 secure 를 켠다.
 const COOKIE = { httpOnly: true, sameSite: 'lax', secure: PROD, maxAge: 30 * 24 * 60 * 60 * 1000 };
 

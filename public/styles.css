@@ -846,3 +846,7 @@ h1 { font-size: clamp(24px, 3.4vw, 30px); }
 .tier-feats li { font-size: 13.5px; color: var(--ink); position: relative; padding-left: 20px; }
 .tier-feats li::before { content: '✓'; position: absolute; left: 0; color: var(--c); font-weight: 700; }
 .tier .btn { width: 100%; }
+
+/* 체험 계정 로그인 구분선 */
+.demo-divider { display: flex; align-items: center; gap: 10px; margin: 16px 0 12px; color: var(--ink-3); font-size: 12.5px; }
+.demo-divider::before, .demo-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
