@@ -21,9 +21,11 @@ if (PROD) app.set('trust proxy', 1);
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
-// HTML은 항상 재검증(캐시된 옛 화면 방지), 나머지 정적파일은 ETag로 재검증
+// HTML·CSS·JS는 항상 서버에 재검증(no-cache) → 옛 화면 캐시 방지. 이미지는 ETag 캐시.
 app.use(express.static(path.join(__dirname, 'public'), {
-  setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); }
+  setHeaders: (res, p) => {
+    if (/\.(html|css|js)$/.test(p)) res.setHeader('Cache-Control', 'no-cache');
+  }
 }));
 
 seedIfEmpty();
