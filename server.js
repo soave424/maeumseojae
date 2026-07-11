@@ -337,7 +337,7 @@ app.post('/api/checkin', (req, res) => {
     return res.json({
       crisis: true,
       helplines: HELPLINES,
-      message: '지금 많이 힘드신 것 같아요. 마음서재는 상담이나 의료 서비스가 아니어서, 지금 이 순간에 필요한 도움을 드리기 어렵습니다. 아래 창구에서 바로 이야기 나누실 수 있어요.'
+      message: '지금 많이 힘드신 것 같아요. 무드리딩은 상담이나 의료 서비스가 아니어서, 지금 이 순간에 필요한 도움을 드리기 어렵습니다. 아래 창구에서 바로 이야기 나누실 수 있어요.'
     });
   }
 
@@ -808,5 +808,5 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`\n  📖 마음서재가 http://localhost:${PORT} 에서 문을 열었어요.\n`);
+  console.log(`\n  📖 무드리딩이 http://localhost:${PORT} 에서 문을 열었어요.\n`);
 });

@@ -1,4 +1,4 @@
-// 마음서재 — 프런트엔드 (의존성 없는 해시 라우팅 SPA)
+// 무드리딩 — 프런트엔드 (의존성 없는 해시 라우팅 SPA)
 
 const view = document.getElementById('view');
 const authEl = document.getElementById('auth');
@@ -212,7 +212,7 @@ function openAuthModal(afterLogin) {
     const isLogin = mode === 'login';
     back.innerHTML = `
       <div class="modal">
-        <h2>${isLogin ? '다시 오셨네요' : '마음서재에 오신 걸 환영해요'}</h2>
+        <h2>${isLogin ? '다시 오셨네요' : '무드리딩에 오신 걸 환영해요'}</h2>
         <p class="sub">${isLogin ? '마음이가 기다리고 있었어요.' : '감정을 기록하면 동반자 마음이가 함께 자랍니다.'}</p>
         <form id="af">
           <div class="field"><label>아이디</label><input type="text" name="username" autocomplete="username" required></div>
@@ -267,7 +267,7 @@ function cardHTML(pick) {
     <div class="author">${esc(b.author)}</div>
     <p class="why">${esc(b.why)}</p>
     <blockquote class="quote">${esc(b.curatorNote)}
-      <small>마음서재 큐레이터 노트 · 본문 인용이 아닙니다</small>
+      <small>무드리딩 큐레이터 노트 · 본문 인용이 아닙니다</small>
     </blockquote>
     <div class="meta-row">
       <span>오늘 읽을 분량 · <b>${esc(b.portion)}</b></span>
@@ -553,7 +553,7 @@ async function renderPrograms(root) {
 
   root.innerHTML = `
     <div class="sec-head"><div>
-      <h2 class="sec-title serif">마음서재가 준비한 경험</h2>
+      <h2 class="sec-title serif">무드리딩이 준비한 경험</h2>
       <p class="sec-sub">화면 밖에서도 이어지는 독서. 감정에서 출발하는 오프라인 경험.</p>
     </div></div>
     <div class="exp-grid">${programs.map(expCardHTML).join('')}</div>
@@ -1135,7 +1135,7 @@ function openBookDetail(b) {
       <h2>${esc(b.title)}</h2>
       <p class="sub">${esc(b.author)}${b.minutes ? ` · 약 ${b.minutes}분` : ''}</p>
       ${b.why ? `<p class="bd-why">${esc(b.why)}</p>` : ''}
-      ${b.curatorNote ? `<blockquote class="bd-quote serif">${esc(b.curatorNote)}<small>마음서재 큐레이터 노트 · 본문 인용이 아닙니다</small></blockquote>` : ''}
+      ${b.curatorNote ? `<blockquote class="bd-quote serif">${esc(b.curatorNote)}<small>무드리딩 큐레이터 노트 · 본문 인용이 아닙니다</small></blockquote>` : ''}
       ${b.portion ? `<div class="bd-meta">오늘 읽을 분량 · <b>${esc(b.portion)}</b></div>` : ''}
       ${b.question ? `<div class="ask"><strong>읽고 나서 생각할 질문</strong>${esc(b.question)}</div>` : ''}
       <div class="bd-actions">
