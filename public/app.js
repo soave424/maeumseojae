@@ -104,23 +104,20 @@ function kalInit() {
     kal.master.connect(kal.ctx.destination);
   } catch { kal.ctx = null; }
 }
-// 칼림바: 펜타토닉에서 무작위 한 음. 부드러운 타격 + 1.2초 지수 감쇠, 최대 볼륨 ~0.055.
+// 칼림바: 펜타토닉에서 무작위 한 음. 맑은 사인파 + 즉발 타격 후 1.2초 지수 감쇠.
 function kalPluck(step) {
   if (!kal.on || !kal.ctx) return;
   const t = kal.ctx.currentTime;
   const idx = (step == null ? Math.floor(Math.random() * kal.scale.length) : step) % kal.scale.length;
   const freq = kal.scale[idx];
+  const osc = kal.ctx.createOscillator();
   const g = kal.ctx.createGain();
-  const o1 = kal.ctx.createOscillator(), o2 = kal.ctx.createOscillator(), g2 = kal.ctx.createGain();
-  o1.type = 'triangle'; o2.type = 'sine';
-  o1.frequency.value = freq; o2.frequency.value = freq * 2.01; // 옥타브 배음(칼림바의 금속성)
-  g2.gain.value = 0.2;
-  o1.connect(g); o2.connect(g2); g2.connect(g);
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.055, t + 0.006);       // 부드러운 어택
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);         // 1.2초 지수 감쇠
-  g.connect(kal.master);
-  o1.start(t); o2.start(t); o1.stop(t + 1.3); o2.stop(t + 1.3);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(0.06, t);                        // 타격 순간 볼륨
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);  // 1.2초 동안 자연 감쇠
+  osc.connect(g); g.connect(kal.master);
+  osc.start(t); osc.stop(t + 1.3);
 }
 function kalSuccess() {
   if (!kal.on || !kal.ctx) return;
