@@ -871,7 +871,7 @@ function transcribeWidget(container, target, onDone) {
   const submit = container.querySelector('[data-submit]');
   const resultBox = container.querySelector('.copy-result');
   const soundBtn = container.querySelector('.sound-toggle');
-  let lastLen = 0, startTime = 0;
+  let lastLen = 0, startTime = 0, submitting = false;
 
   function paint() {
     const v = ta.value;
@@ -894,21 +894,9 @@ function transcribeWidget(container, target, onDone) {
     submit.disabled = v.trim().length < 2;
   }
 
-  ta.addEventListener('focus', kalInit);
-  ta.addEventListener('input', () => {
-    kalInit();
-    const v = ta.value;
-    if (!startTime && v.length) startTime = Date.now();
-    if (v.length > lastLen) kalPluck(); // 키 입력마다 펜타토닉 무작위 음
-    lastLen = v.length;
-    paint();
-  });
-  soundBtn.onclick = () => { soundBtn.textContent = kalToggle() ? '🔊' : '🔇'; ta.focus(); };
-  paint();
-  setTimeout(() => ta.focus(), 60);
-
-  submit.onclick = async () => {
-    submit.disabled = true;
+  async function doSubmit() {
+    if (submitting || ta.value.trim().length < 2) return;
+    submitting = true; submit.disabled = true;
     try {
       const res = await api('/api/transcribe', { method: 'POST', body: { kind: target.kind, ref: target.ref, text: ta.value } });
       resultBox.hidden = false;
@@ -921,10 +909,30 @@ function transcribeWidget(container, target, onDone) {
       } else {
         resultBox.className = 'copy-result fail';
         resultBox.innerHTML = `정확도 <b>${res.accuracy}%</b> · 조금만 더요. 90%를 넘기면 완성돼요.`;
-        submit.disabled = false;
+        submitting = false; submit.disabled = false;
       }
-    } catch (err) { toast(err.message); submit.disabled = false; }
-  };
+    } catch (err) { toast(err.message); submitting = false; submit.disabled = false; }
+  }
+
+  ta.addEventListener('focus', kalInit);
+  ta.addEventListener('input', () => {
+    kalInit();
+    const v = ta.value;
+    if (!startTime && v.length) startTime = Date.now();
+    if (v.length > lastLen) kalPluck(); // 키 입력마다 펜타토닉 무작위 음
+    lastLen = v.length;
+    paint();
+    // 정확히 다 옮겨 적으면(100%) 자동으로 완성 처리
+    if (!submitting && normJ(v) === normJ(target.text)) doSubmit();
+  });
+  // 엔터로도 완성 (줄바꿈 대신)
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSubmit(); }
+  });
+  soundBtn.onclick = () => { soundBtn.textContent = kalToggle() ? '🔊' : '🔇'; ta.focus(); };
+  submit.onclick = doSubmit;
+  paint();
+  setTimeout(() => ta.focus(), 60);
 }
 
 function openCopyModal(bookId) {
