@@ -7,19 +7,20 @@ import { db } from './db.js';
 // "나는 지금 이렇다". 무거운 감정뿐 아니라 잔잔·설레는 마음도 함께.
 // tone: heavy(무거움) | bright(밝음) — 화면에서 살짝 구분해 균형을 보여준다.
 // char 파일이 없으면 프런트에서 icon 이모지로 대체된다.
+// 밝은 감정을 앞쪽에 고르게 섞어, 첫 화면이 부정 일색으로 보이지 않게 한다. (인터뷰 P0)
 export const MOODS = [
+  { key: '설렘',   icon: '🌱', color: '#7FA86B', tone: 'bright', hint: '기대와 두근거림이 차오를 때',   char: '/characters/mood/excited.svg' },
   { key: '불안',   icon: '🌊', color: '#6E8FA6', tone: 'heavy',  hint: '마음이 자꾸 앞서 달려갈 때',   char: '/characters/mood/anxiety.svg' },
+  { key: '평온',   icon: '🍃', color: '#8CAE9A', tone: 'bright', hint: '마음이 잔잔하고 고요할 때',     char: '/characters/mood/serene.svg' },
   { key: '무기력', icon: '🕯️', color: '#9A8F7E', tone: 'heavy',  hint: '아무것도 시작할 힘이 없을 때',  char: '/characters/mood/lethargy.svg' },
+  { key: '뿌듯',   icon: '🌟', color: '#E0B255', tone: 'bright', hint: '무언가 해냈다는 마음이 들 때',   char: '/characters/mood/proud.svg' },
   { key: '분노',   icon: '🔥', color: '#C06A4A', tone: 'heavy',  hint: '삼키기 어려운 화가 올라올 때',  char: '/characters/mood/anger.svg' },
+  { key: '그리움', icon: '🍂', color: '#C0895E', tone: 'bright', hint: '누군가·무언가가 떠오를 때',     char: '/characters/mood/longing.svg' },
   { key: '외로움', icon: '🌙', color: '#7C6E9B', tone: 'heavy',  hint: '혼자라는 감각이 짙어질 때',     char: '/characters/mood/loneliness.svg' },
   { key: '슬픔',   icon: '💧', color: '#5F86A6', tone: 'heavy',  hint: '울적함이 가라앉지 않을 때',     char: '/characters/mood/sadness.svg' },
   { key: '공허',   icon: '🌫️', color: '#8C8A84', tone: 'heavy',  hint: '아무 느낌 없이 텅 빈 것 같을 때', char: '/characters/mood/emptiness.svg' },
   { key: '조급',   icon: '⏳', color: '#C68A52', tone: 'heavy',  hint: '자꾸 쫓기고 서두르게 될 때',    char: '/characters/mood/haste.svg' },
-  { key: '상처',   icon: '🩹', color: '#B47E86', tone: 'heavy',  hint: '누군가에게 마음을 다쳤을 때',   char: '/characters/mood/hurt.svg' },
-  { key: '설렘',   icon: '🌱', color: '#7FA86B', tone: 'bright', hint: '기대와 두근거림이 차오를 때',   char: '/characters/mood/excited.svg' },
-  { key: '뿌듯',   icon: '🌟', color: '#E0B255', tone: 'bright', hint: '무언가 해냈다는 마음이 들 때',   char: '/characters/mood/proud.svg' },
-  { key: '평온',   icon: '🍃', color: '#8CAE9A', tone: 'bright', hint: '마음이 잔잔하고 고요할 때',     char: '/characters/mood/serene.svg' },
-  { key: '그리움', icon: '🍂', color: '#C0895E', tone: 'bright', hint: '누군가·무언가가 떠오를 때',     char: '/characters/mood/longing.svg' }
+  { key: '상처',   icon: '🩹', color: '#B47E86', tone: 'heavy',  hint: '누군가에게 마음을 다쳤을 때',   char: '/characters/mood/hurt.svg' }
 ];
 
 // ── 도착 마을 (목적지) ──────────────────────────────

@@ -254,25 +254,32 @@ async function loadSaves() {
 }
 
 // ── 처방 카드 ────────────────────────────────────
-function cardHTML(pick) {
+function cardHTML(pick, situations = []) {
   const b = pick.book;
   const saved = state.savedIds.has(b.id);
+  const match = (b.situations || []).filter(s => situations.includes(s));
+  const matchBadge = match.length
+    ? `<div class="match-badge">🎯 ‘${esc(match.join(' · '))}’ 상황과 맞닿은 책</div>` : '';
   return `
   <article class="card ${pick.key}">
     <div class="card-mode">${pick.icon} ${esc(pick.label)}</div>
     <h3>${esc(b.title)}</h3>
     <div class="author">${esc(b.author)}</div>
-    <p class="why">${esc(b.why)}</p>
-    <blockquote class="quote">${esc(b.curatorNote)}
-      <small>무드리딩 큐레이터 노트 · 본문 인용이 아닙니다</small>
-    </blockquote>
-    <div class="meta-row">
-      <span>오늘 읽을 분량 · <b>${esc(b.portion)}</b></span>
-      <span>· 약 <b>${b.minutes}분</b></span>
-    </div>
-    <div class="ask">
-      <strong>읽고 나서 생각할 질문</strong>
-      ${esc(b.question)}
+    ${matchBadge}
+    <p class="why clamp3">${esc(b.why)}</p>
+    <button class="card-toggle" data-more="${b.id}">자세히 보기 ▾</button>
+    <div class="card-detail" hidden>
+      <blockquote class="quote">${esc(b.curatorNote)}
+        <small>무드리딩 큐레이터 노트 · 본문 인용이 아닙니다</small>
+      </blockquote>
+      <div class="meta-row">
+        <span>오늘 읽을 분량 · <b>${esc(b.portion)}</b></span>
+        <span>· 약 <b>${b.minutes}분</b></span>
+      </div>
+      <div class="ask">
+        <strong>읽고 나서 생각할 질문</strong>
+        ${esc(b.question)}
+      </div>
     </div>
     <div class="card-actions">
       <button class="btn small ${saved ? 'ghost' : 'sage'}" data-save="${b.id}">
@@ -308,6 +315,17 @@ function wireCards(root) {
   });
   root.querySelectorAll('[data-read]').forEach(btn => {
     btn.onclick = () => { location.hash = `#/routine?book=${btn.dataset.read}`; };
+  });
+  root.querySelectorAll('[data-more]').forEach(btn => {
+    btn.onclick = () => {
+      const card = btn.closest('.card');
+      const detail = card.querySelector('.card-detail');
+      const why = card.querySelector('.why');
+      const open = detail.hidden;
+      detail.hidden = !open;
+      why.classList.toggle('clamp3', !open);
+      btn.textContent = open ? '접기 ▲' : '자세히 보기 ▾';
+    };
   });
 }
 
@@ -708,9 +726,12 @@ function renderPrescription(root, data) {
           <span class="intensity">${[1, 2, 3].map(i => `<i class="${i <= analysis.intensity ? 'on' : ''}"></i>`).join('')}</span>
         </span>
       </div>
+      ${analysis.situations.length
+        ? `<p class="reflect">💬 적어주신 <b>‘${esc(analysis.situations.join(' · '))}’</b> 이야기를 반영해서 골랐어요.</p>`
+        : `<p class="reflect muted">한 문장만 적어주시면, 그 상황까지 반영해 더 맞는 책을 골라드려요.</p>`}
     </div>
     <h2 class="section-title">${d ? `${esc(d.villageName)}${particleRo(d.villageName)} 데려다줄 책 세 권` : '오늘의 책 처방전 · 세 갈래'}</h2>
-    <div class="cards" id="cards">${picks.map(cardHTML).join('')}</div>
+    <div class="cards" id="cards">${picks.map(pk => cardHTML(pk, analysis.situations)).join('')}</div>
     <div class="feedback" id="fb">
       ${guest
       ? `<p>마음에 드셨다면, 저장하고 마음이를 키워 보세요.</p><div class="row"><button class="btn sage" id="signup">서재 만들기</button></div>`
@@ -791,6 +812,24 @@ async function viewCharacter() {
       </div>
     </div>
 
+    <h2 class="section-title mt">읽고 난 뒤, 마음은 달라졌을까</h2>
+    ${r.routineCount
+      ? `<div class="effect-band">
+          <div class="eff-main">
+            <div class="eff-num">${r.avgDelta > 0 ? '+' : ''}${r.avgDelta}<small>칸</small></div>
+            <div class="eff-cap">읽고 나서 평균 마음 변화</div>
+          </div>
+          <div class="eff-text">
+            <b>${r.routineCount}번</b> 읽는 동안 <b>${r.improvedRatio}%</b>는 마음이 가벼워졌어요.<br>
+            <span class="muted">무드리딩의 핵심은 추천이 아니라, 읽고 난 뒤의 이 변화예요.</span>
+          </div>
+        </div>`
+      : `<div class="effect-band empty">
+          <div class="eff-text">아직 “읽고 난 뒤”의 기록이 없어요. <b>10분 루틴</b>으로 한 권만 읽어 보면,<br>
+          <span class="muted">읽기 전과 후의 마음이 어떻게 달라지는지 숫자로 보여드려요 — 무드리딩만의 효과 확인.</span></div>
+          <button class="btn sage" id="toRoutine">10분 읽어보기</button>
+        </div>`}
+
     <h2 class="section-title mt">나의 기록 (최근 4주)</h2>
     <div class="stats">
       <div class="stat"><div class="v">${r.streak}<small>일</small></div><div class="k">연속 체크인</div></div>
@@ -818,6 +857,7 @@ async function viewCharacter() {
 
   view.querySelector('#toCheckin').onclick = () => location.hash = '#/';
   view.querySelector('#toCopy').onclick = () => location.hash = '#/copy';
+  view.querySelector('#toRoutine')?.addEventListener('click', () => location.hash = '#/routine');
 
   // 이름 짓기 (인라인)
   view.querySelector('#cnEdit').onclick = () => {
