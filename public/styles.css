@@ -890,3 +890,7 @@ h1 { font-size: clamp(24px, 3.4vw, 30px); }
   .village .vcard .v-key { font-size: 16px; }
   .village .vcard .v-hint { font-size: 10.5px; line-height: 1.3; padding: 0 4px; white-space: normal; word-break: keep-all; }
 }
+
+/* 다른 책 추천받기(리롤) */
+.reroll-row { display: flex; justify-content: center; margin: 18px 0 4px; }
+.reroll-row .btn { font-size: 14px; }

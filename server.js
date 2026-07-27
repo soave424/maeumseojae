@@ -228,40 +228,43 @@ function bookCard(b) {
 // 책은 "지금 감정(mood)"이 아니라 "가고 싶은 마을(village)"을 향해 고른다.
 //   지금 감정 = 출발점(맥락), 도착 마을 = 책이 데려다줄 목적지.
 //   village.targets = 이 마을로 데려다주는 책의 emotion 태그.
-function recommend(village, note, mood) {
+function recommend(village, note, mood, exclude = []) {
   const situations = classifySituations(note);
   const intensity = measureIntensity(note);
   const targets = village.targets;
-  const salt = hashOf(`${village.key}|${mood}|${note}`);
+  const ex = new Set((exclude || []).map(Number));
+  const salt = hashOf(`${village.key}|${mood}|${note}|${ex.size}`);
 
   const scored = D().books
     .filter(b => b.audience === 'adult')
     .map(b => {
-      let score = 0;
-      if (targets.includes(b.emotion)) score += 10;                       // 도착 마을을 향하는 책
-      if ((b.alsoFor || []).some(a => targets.includes(a))) score += 5;
-      if (mood && b.emotion === mood) score += 2;                         // 지금 감정도 살짝 반영
-      // 상황이 강하게 맞으면, 감정이 부차적으로 걸린 책도 1순위를 이길 수 있어야 한다.
-      // (감정 10점 + 상황 0개) < (감정 6점 + 상황 2개) — "같은 불안이라도 취업 불안과 관계 불안은 다르다"
+      // rel = 마을과의 '진짜' 관련도(흔들림 제외). rel>0 인 책만 후보로 둔다.
+      let rel = 0;
+      if (targets.includes(b.emotion)) rel += 10;                         // 도착 마을을 향하는 책
+      if ((b.alsoFor || []).some(a => targets.includes(a))) rel += 5;
+      if (mood && b.emotion === mood) rel += 2;                           // 지금 감정도 살짝 반영
       const overlap = (b.situations || []).filter(s => situations.includes(s)).length;
-      score += overlap * 3;
-      // 감정이 강할수록 '가볍게 읽을 책'의 문턱을 더 낮춘다 (§3-1 시간 부족 → 짧은 독서)
+      rel += overlap * 3;
+      let score = rel;
       if (intensity >= 3 && b.mode === 'light') score += 2;
       if (intensity >= 3 && b.minutes <= 10) score += 1;
-      // 동점일 때 매번 같은 순서가 나오지 않도록 아주 작은 흔들림을 준다.
-      score += ((salt + b.id) % 3) * 0.1;
-      return { book: b, score };
+      score += ((salt + b.id) % 3) * 0.1;                                 // 동점 순서만 흔든다
+      return { book: b, rel, score };
     })
-    .filter(x => x.score > 0)
+    .filter(x => x.rel > 0)
     .sort((a, b) => b.score - a.score);
 
-  // 세 갈래에서 각각 최고점 한 권씩 (§5-3)
+  // 세 갈래에서 각각 한 권씩. 마을 테마(scored) 안에서만 고르고, 이미 본 책은 건너뛴다.
+  // 마을 책을 다 보면 반복 허용 → 프런트가 "처음부터"로 순환.
+  let fresh = 0;
   const picks = [];
   for (const mode of MODES) {
-    const hit = scored.find(x => x.book.mode === mode.key);
+    let hit = scored.find(x => x.book.mode === mode.key && !ex.has(x.book.id));   // 안 본 마을 책
+    if (hit) fresh++;
+    else hit = scored.find(x => x.book.mode === mode.key);                        // 소진 → 마을 안에서 반복
     if (hit) picks.push({ ...mode, book: bookCard(hit.book) });
   }
-  return { situations, intensity, picks };
+  return { situations, intensity, picks, fresh }; // fresh: 이번에 새로 나온 권수
 }
 
 // ---------- 메타 ----------
@@ -388,6 +391,34 @@ app.post('/api/checkin', (req, res) => {
     guest: !me,
     award: awardRes
   });
+});
+
+// ---------- 다른 책 추천받기 (리롤) — 포인트/기록 없이 같은 마을의 다른 책만 ----------
+app.post('/api/recommend', (req, res) => {
+  const emotion = String(req.body?.emotion || '').trim();
+  const note = String(req.body?.note || '').trim().slice(0, 300);
+  const destKey = String(req.body?.destination || '').trim();
+  const customDest = String(req.body?.customDestination || '').trim().slice(0, 60);
+  const exclude = Array.isArray(req.body?.exclude) ? req.body.exclude : [];
+  if (!MOODS.find(m => m.key === emotion)) return res.status(400).json({ error: '지금 감정을 하나 골라 주세요.' });
+
+  const chosen = VILLAGES.find(v => v.key === destKey);
+  const fallback = () => VILLAGES.find(v => v.key === (SUGGEST[emotion]?.[0]?.to)) || VILLAGES[0];
+  let village = fallback(), customLabel = null;
+  if (chosen) village = chosen;
+  else if (customDest) {
+    village = VILLAGES.find(v => customDest.includes(v.key) || customDest.includes(v.charName) || customDest.includes(v.name.replace(' 마을', ''))) || fallback();
+    customLabel = customDest;
+  }
+  const { situations, intensity, picks, fresh } = recommend(village, note, emotion, exclude);
+  const destination = {
+    key: village.key,
+    villageName: customLabel || village.name,
+    villageVibe: customLabel ? '내가 직접 그린 마을' : village.vibe,
+    char: village.char, charName: village.charName, color: village.color,
+    custom: !!customLabel
+  };
+  res.json({ analysis: { emotion, situations, intensity, destination }, picks, fresh });
 });
 
 // ---------- 내 서재: 책 저장 (§10 저장 기능) ----------

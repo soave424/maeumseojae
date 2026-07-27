@@ -14,6 +14,8 @@ const state = {
   copySource: 'classic',
   librarySort: 'recent',
   lastPrescription: null,
+  lastReq: null,
+  shownBookIds: [],
   savedIds: new Set()
 };
 
@@ -506,12 +508,40 @@ async function submitCheckin() {
     const data = await api('/api/checkin', { method: 'POST', body });
     if (data.crisis) return renderCrisis(result, data);
     state.lastPrescription = data;
+    state.lastReq = body;                                  // 리롤에 재사용
+    state.shownBookIds = data.picks.map(p => p.book.id);   // 이미 본 책 누적
     renderPrescription(result, data);
     flashAward(data.award);
     result.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
     result.innerHTML = `<p class="err">${esc(err.message)}</p>`;
   }
+}
+
+// 다른 책 추천받기 (리롤) — 이미 본 책을 제외하고 같은 마을의 다른 책으로
+async function rerecommend(btn) {
+  if (!state.lastReq) return;
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '다른 책을 고르는 중…';
+  try {
+    let data = await api('/api/recommend', { method: 'POST', body: { ...state.lastReq, exclude: state.shownBookIds } });
+    let ids = data.picks.map(p => p.book.id);
+    const anyNew = ids.some(id => !state.shownBookIds.includes(id));
+    if (!anyNew) {
+      // 이 마을 책을 다 둘러봄 → 처음부터 다시
+      state.shownBookIds = [];
+      data = await api('/api/recommend', { method: 'POST', body: { ...state.lastReq, exclude: [] } });
+      ids = data.picks.map(p => p.book.id);
+      toast('이 마을의 책을 다 둘러봤어요. 처음부터 다시 보여드릴게요 🔄');
+    }
+    state.shownBookIds = [...new Set([...state.shownBookIds, ...ids])];
+    const cardsEl = view.querySelector('#cards');
+    cardsEl.innerHTML = data.picks.map(pk => cardHTML(pk, data.analysis.situations)).join('');
+    wireCards(cardsEl);
+    cardsEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (err) { toast(err.message); }
+  btn.disabled = false; btn.textContent = orig;
 }
 
 // ── 수익화: 시그니처 경험 · 마스터 · 멤버십 ────────
@@ -732,6 +762,9 @@ function renderPrescription(root, data) {
     </div>
     <h2 class="section-title">${d ? `${esc(d.villageName)}${particleRo(d.villageName)} 데려다줄 책 세 권` : '오늘의 책 처방전 · 세 갈래'}</h2>
     <div class="cards" id="cards">${picks.map(pk => cardHTML(pk, analysis.situations)).join('')}</div>
+    <div class="reroll-row">
+      <button class="btn ghost" id="reroll">🔄 이 책들 말고, 다른 책 추천받기</button>
+    </div>
     <div class="feedback" id="fb">
       ${guest
       ? `<p>마음에 드셨다면, 저장하고 마음이를 키워 보세요.</p><div class="row"><button class="btn sage" id="signup">서재 만들기</button></div>`
@@ -740,6 +773,7 @@ function renderPrescription(root, data) {
            <button class="btn ghost" data-fb="0">아니요, 잘 안 맞아요</button></div>`}
     </div>`;
   wireCards(root);
+  root.querySelector('#reroll')?.addEventListener('click', e => rerecommend(e.currentTarget));
   const fb = root.querySelector('#fb');
   fb.querySelector('#signup')?.addEventListener('click', () => openAuthModal());
   fb.querySelectorAll('[data-fb]').forEach(btn => {
