@@ -97,19 +97,34 @@ export const MASTERS = [
 // ─────────────────────────────────────────────────────────────
 export const MEMBERSHIPS = [
   {
-    id: 'kickstart', name: '작심삼일 패스', price: '1,900원', period: ' · 1회권', tagline: '딱 3일, 작심삼일만 넘겨봐요',
-    features: ['3일 독서 킥오프 챌린지', '매일 감정 체크인 알림', '하루 10분 · 한 문장 필사', '3일 완주 뱃지'],
-    cta: '1,900원으로 시작', accent: '#C0794A'
+    id: 'free', name: '무료', price: '0원', period: '', tagline: '유입 · 데이터',
+    features: ['감정 체크인 · 하루 1권 추천', '기본 기록'],
+    cta: '무료로 시작', accent: '#9AA79A'
   },
   {
-    id: 'basic', name: '베이직', price: '4,900원', period: '/월', tagline: '매일 곁에 두기', badge: '인기',
-    features: ['무제한 감정 책 처방', '필사 · 10분 독서 루틴', '주간 감정 리포트', '마을 독서 모임 참여'],
-    cta: '베이직 시작', accent: '#6E8B74'
+    id: 'kickstart', name: '1회 처방권', price: '1,900원', period: ' · 1회', tagline: '1조 피드백 반영',
+    features: ['심층 진단 + 3권 처방 카드', '글귀 패키지'],
+    cta: '1회 처방받기', accent: '#C0794A'
   },
   {
-    id: 'premium', name: '프리미엄', price: '12,900원', period: '/월', tagline: '더 깊이, 더 가까이',
-    features: ['베이직의 모든 기능', '오디오북 연계', '마스터 1:1 큐레이션', '프리미엄 리포트 · 한정 굿즈'],
+    id: 'program4w', name: '4주 프로그램', price: '300,000원', period: '', tagline: '선택형 · 선불',
+    features: ['1회기 2시간 수업', '감정 주제 코스 (불안 · 무기력 등)', '완주 리워드'],
+    cta: '프로그램 신청', accent: '#8A7B66'
+  },
+  {
+    id: 'basic', name: '구독', price: '월 4,900원', period: ' · 연 50,000원', badge: '인기',
+    features: ['무제한 처방', '주간 감정 리포트'],
+    cta: '구독 시작', accent: '#6E8B74'
+  },
+  {
+    id: 'premium', name: '프리미엄', price: '월 12,900원', period: '', tagline: '더 깊이, 더 가까이',
+    features: ['오디오 낭독', '커뮤니티 모임', '심화 리포트'],
     cta: '프리미엄 시작', accent: '#C99A46'
+  },
+  {
+    id: 'training', name: '연수 + 이용권', price: '월 79,000원', period: '', tagline: '학교 · 기관용',
+    features: ['연수 (감정기반 사회정서 교육 · 이용법)', '15시간 1학점 인정', '+ 이용권'],
+    cta: '연수 문의', accent: '#D9932F'
   }
 ];
 

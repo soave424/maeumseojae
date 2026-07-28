@@ -856,8 +856,8 @@ h1 { font-size: clamp(24px, 3.4vw, 30px); }
 .tier-name { font-weight: 700; font-size: 15px; color: color-mix(in srgb, var(--c) 72%, var(--ink)); }
 .tier-price { font-family: 'Nanum Myeongjo', Georgia, serif; font-weight: 700; font-size: 27px; margin: 4px 0 2px; }
 .tier-price small { font-size: 14px; font-weight: 400; color: var(--ink-2); }
-.tier-tag { font-size: 13px; color: var(--ink-2); margin-bottom: 14px; }
-.tier-feats { list-style: none; margin: 0 0 18px; padding: 0; display: grid; gap: 8px; flex: 1; }
+.tier-tag { font-size: 12.5px; color: var(--ink-3); margin: 0 0 14px; }
+.tier-feats { list-style: none; margin: 8px 0 14px; padding: 0; display: grid; gap: 8px; flex: 1; }
 .tier-feats li { font-size: 13.5px; color: var(--ink); position: relative; padding-left: 20px; }
 .tier-feats li::before { content: '✓'; position: absolute; left: 0; color: var(--c); font-weight: 700; }
 .tier .btn { width: 100%; }

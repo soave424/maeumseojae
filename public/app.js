@@ -238,7 +238,18 @@ function openAuthModal(afterLogin) {
         <p class="hint center" style="margin-top:6px">가입 없이 <b>test</b> 계정으로 로그인해요</p>
       </div>`;
     back.querySelector('#swap').onclick = () => { mode = isLogin ? 'register' : 'login'; draw(); };
-    back.querySelector('#demoBtn').onclick = () => demoLogin(afterLogin ? (() => { close(); afterLogin(); }) : (() => close()));
+    // 체험 계정: 아이디·비밀번호에 test 를 자동 입력하고 로그인 폼을 그대로 제출한다.
+    const fillDemoAndSubmit = () => {
+      const form = back.querySelector('#af');
+      form.username.value = 'test';
+      form.password.value = 'test';
+      if (typeof form.requestSubmit === 'function') form.requestSubmit();
+      else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    };
+    back.querySelector('#demoBtn').onclick = () => {
+      if (!isLogin) { mode = 'login'; draw(); }  // 가입 모드였다면 로그인 모드로 바꾼 뒤 채운다
+      fillDemoAndSubmit();
+    };
     back.querySelector('#af').onsubmit = async e => {
       e.preventDefault();
       const fd = Object.fromEntries(new FormData(e.target));
@@ -606,8 +617,8 @@ function tierHTML(m) {
       ${m.badge ? `<div class="tier-badge">${esc(m.badge)}</div>` : ''}
       <div class="tier-name">${esc(m.name)}</div>
       <div class="tier-price">${esc(m.price)}<small>${esc(m.period || '')}</small></div>
-      <div class="tier-tag">${esc(m.tagline)}</div>
       <ul class="tier-feats">${m.features.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+      ${m.tagline ? `<div class="tier-tag">${esc(m.tagline)}</div>` : ''}
       <button class="btn ${featured ? 'sage' : 'ghost'}" data-mem="${m.id}">${m.interested ? '✓ 신청됨' : esc(m.cta)}</button>
     </article>`;
 }
