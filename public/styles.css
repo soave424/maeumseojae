@@ -876,7 +876,9 @@ h1 { font-size: clamp(24px, 3.4vw, 30px); }
 .card-toggle { align-self: flex-start; background: none; border: 0; padding: 2px 0; cursor: pointer;
   font: inherit; font-size: 12.5px; font-weight: 600; color: var(--sage); }
 .card-toggle:hover { text-decoration: underline; }
-.card-detail { display: flex; flex-direction: column; gap: 12px; }
+.card-detail { display: flex; flex-direction: column; gap: 12px; margin-top: 2px; }
+/* hidden 속성이 걸리면 무조건 숨긴다 (display:flex 가 [hidden] 의 display:none 을 이기는 문제 해결) */
+.card-detail[hidden] { display: none; }
 
 /* 효과 확인 루프 밴드 */
 .effect-band { display: flex; align-items: center; gap: 22px; margin-bottom: 20px;
