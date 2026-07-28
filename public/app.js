@@ -264,6 +264,13 @@ async function loadSaves() {
   state.savedIds = new Set(books.map(b => b.id));
 }
 
+// 현재 로그인 사용자 정보를 새로 읽어 state.me 갱신 (role/classId 반영)
+async function loadMe() {
+  const { user } = await api('/api/me');
+  state.me = user;
+  return user;
+}
+
 // ── 처방 카드 ────────────────────────────────────
 function cardHTML(pick, situations = []) {
   const b = pick.book;
@@ -1560,24 +1567,256 @@ async function viewChallenges() {
   });
 }
 
-// ── 화면: 교실 ───────────────────────────────────
+// ── 화면: 교실 (역할 분기) ───────────────────────
 async function viewClassroom() {
-  const { books } = await api('/api/classroom');
+  const ctx = state.me ? await api('/api/class').catch(() => ({ role: 'member', class: null })) : { role: 'member', class: null };
+  if (state.me && ctx.role === 'teacher' && ctx.class) return teacherConsole(ctx);
+  if (state.me && ctx.role === 'student' && ctx.class) return studentClassroom();
+  return classroomLanding();
+}
+
+// 감정 막대 차트 (대시보드/공유 공용). emotions: [{icon,color,count,pct?}]
+function emotionBars(emotions, showPct) {
+  if (!emotions || !emotions.length) return `<p class="hint" style="padding:4px 2px">아직 기록된 감정이 없어요.</p>`;
+  const max = Math.max(...emotions.map(e => e.count), 1);
+  return `<div class="emo-bars">${emotions.map(e => `
+    <div class="emo-row">
+      <span class="emo-key">${e.icon} ${esc(e.key)}</span>
+      <span class="emo-track"><span class="emo-fill" style="width:${Math.round((e.count / max) * 100)}%;background:${e.color}"></span></span>
+      <span class="emo-num">${showPct ? e.pct + '%' : e.count}</span>
+    </div>`).join('')}</div>`;
+}
+
+// ── 교실 랜딩: 교사/학생 선택 ────────────────────
+async function classroomLanding() {
   view.innerHTML = `
-    <h1>교실 모드</h1>
-    <p class="hint" style="margin-top:-6px">아침활동 감정 체크인 후 함께 읽을 책과 활동지. 학급·학교 단위로 쓰도록 설계했습니다.</p>
-    <div class="grid-2 mt">
-      ${books.map(b => `
-        <div class="panel">
-          <div class="card-mode">${b.emotion === '전체' ? '🎨 감정 어휘' : iconOf(b.emotion) + ' ' + esc(b.emotion)}</div>
-          <h3>${esc(b.title)}</h3>
-          <p class="sub">${esc(b.author)}</p>
-          <p class="why">${esc(b.why)}</p>
-          <div class="ask"><strong>활동지</strong>
-            <ol class="activity">${b.activity.map(a => `<li>${esc(a)}</li>`).join('')}</ol></div>
-          <div class="store-row"><a class="store-btn kyobo" href="${b.links.kyobo}" target="_blank" rel="noopener">교보문고에서 보기 <span class="ext">↗</span></a></div>
-        </div>`).join('')}
+    <h1>교실</h1>
+    <p class="hint" style="margin-top:-6px">한 반이 함께 마음을 살피고, 읽고, 나눠요. 심스페이스 마음일기처럼 학급 단위로 씁니다.</p>
+    <div class="grid-2 mt role-pick">
+      <div class="panel role-card" id="asTeacher">
+        <span class="role-emoji">👩‍🏫</span>
+        <h3>교사로 시작</h3>
+        <p class="sub">반을 만들고 학생을 등록해요. 반 코드 하나로 학생들이 들어옵니다.</p>
+        <button class="btn sage" style="width:100%">교사로 시작</button>
+      </div>
+      <div class="panel role-card" id="asStudent">
+        <span class="role-emoji">🧑‍🎓</span>
+        <h3>학생으로 참여</h3>
+        <p class="sub">선생님이 준 <b>반 코드</b>로 들어와요. 내 이름을 고르고 PIN만 누르면 끝.</p>
+        <button class="btn" style="width:100%">학생으로 참여</button>
+      </div>
     </div>`;
+  view.querySelector('#asTeacher').querySelector('button').onclick = async () => {
+    if (!state.me) return openAuthModal(() => startTeacher());
+    if (state.me.role === 'student') return toast('학생 계정으로는 반을 만들 수 없어요.');
+    startTeacher();
+  };
+  view.querySelector('#asStudent').querySelector('button').onclick = () => openStudentLogin();
+}
+
+async function startTeacher() {
+  const name = prompt('반 이름을 지어 주세요 (예: 3학년 2반)', '');
+  if (name === null) return;
+  try {
+    await api('/api/class', { method: 'POST', body: { name: name.trim() } });
+    await loadMe();
+    viewClassroom();
+  } catch (err) { toast(err.message); }
+}
+
+// ── 학생 로그인 (반 코드 → 이름 → PIN) ───────────
+function openStudentLogin() {
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = `
+    <div class="modal">
+      <h2>🧑‍🎓 학생으로 참여</h2>
+      <div id="slStep"></div>
+      <button class="linkish mt" id="slClose" style="display:block;margin:14px auto 0">닫기</button>
+    </div>`;
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.onclick = e => { if (e.target === back) close(); };
+  back.querySelector('#slClose').onclick = close;
+  const step = back.querySelector('#slStep');
+
+  function codeStep() {
+    step.innerHTML = `
+      <p class="sub">선생님이 알려준 <b>반 코드</b>를 입력하세요.</p>
+      <div class="field"><input type="text" id="slCode" placeholder="예: WVUTSB" autocomplete="off" style="text-transform:uppercase;letter-spacing:.1em;font-size:18px;text-align:center"></div>
+      <button class="btn sage" id="slNext" style="width:100%">다음</button>`;
+    const go = async () => {
+      const code = step.querySelector('#slCode').value.trim().toUpperCase();
+      if (code.length < 4) return toast('반 코드를 입력해 주세요.');
+      try { const r = await api(`/api/class/roster?code=${encodeURIComponent(code)}`); nameStep(code, r); }
+      catch (err) { toast(err.message); }
+    };
+    step.querySelector('#slNext').onclick = go;
+    step.querySelector('#slCode').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+    setTimeout(() => step.querySelector('#slCode').focus(), 50);
+  }
+  function nameStep(code, roster) {
+    if (!roster.students.length) { step.innerHTML = `<p class="sub"><b>${esc(roster.className)}</b>에 아직 등록된 학생이 없어요. 선생님께 등록을 부탁하세요.</p>`; return; }
+    step.innerHTML = `
+      <p class="sub"><b>${esc(roster.className)}</b> — 내 이름을 골라요.</p>
+      <div class="name-grid">${roster.students.map(s => `<button class="name-chip" data-id="${s.id}">${esc(s.name)}</button>`).join('')}</div>`;
+    step.querySelectorAll('.name-chip').forEach(b => { b.onclick = () => pinStep(code, Number(b.dataset.id), b.textContent); });
+  }
+  function pinStep(code, studentId, name) {
+    step.innerHTML = `
+      <p class="sub"><b>${esc(name)}</b> — PIN 4자리를 눌러요.</p>
+      <div class="field"><input type="tel" id="slPin" maxlength="4" inputmode="numeric" placeholder="● ● ● ●" style="letter-spacing:.5em;font-size:22px;text-align:center"></div>
+      <button class="btn sage" id="slLogin" style="width:100%">들어가기</button>
+      <button class="linkish mt" id="slBack" style="display:block;margin:10px auto 0">이름 다시 고르기</button>`;
+    const go = async () => {
+      const pin = step.querySelector('#slPin').value.replace(/\D/g, '');
+      if (pin.length < 4) return toast('PIN 4자리를 입력해 주세요.');
+      try {
+        const { user } = await api('/api/class/login', { method: 'POST', body: { code, studentId, pin } });
+        state.me = user; await loadSaves(); renderAuth(); close();
+        toast(`${user.nickname} 님, 환영해요 🌱`);
+        viewClassroom();
+      } catch (err) { toast(err.message); }
+    };
+    step.querySelector('#slLogin').onclick = go;
+    step.querySelector('#slPin').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+    step.querySelector('#slBack').onclick = () => api(`/api/class/roster?code=${encodeURIComponent(code)}`).then(r => nameStep(code, r));
+    setTimeout(() => step.querySelector('#slPin').focus(), 50);
+  }
+  codeStep();
+}
+
+// ── 교사 콘솔 ────────────────────────────────────
+async function teacherConsole(ctx) {
+  const dash = await api('/api/class/dashboard').catch(() => null);
+  const students = ctx.students || [];
+  view.innerHTML = `
+    <div class="cls-head">
+      <div><h1>${esc(ctx.class.name)}</h1>
+        <p class="hint" style="margin-top:-4px">학생을 등록하고, 반의 마음을 한눈에 살펴요.</p></div>
+      <button class="btn ghost small" id="toShare">학급 공유 페이지 →</button>
+    </div>
+    <div class="code-box">
+      <span class="cb-label">반 코드</span>
+      <span class="cb-code">${esc(ctx.class.code)}</span>
+      <button class="btn small ghost" id="copyCode">복사</button>
+      <span class="cb-hint">학생들에게 이 코드를 알려주세요.</span>
+    </div>
+
+    <div class="grid-2 mt">
+      <div class="panel">
+        <div class="panel-head"><h3>학생 관리</h3><span class="hint">${students.length}명</span></div>
+        <form id="addForm" class="add-student">
+          <input type="text" id="stName" placeholder="학생 이름" maxlength="20" autocomplete="off">
+          <button class="btn small sage" type="submit">＋ 등록</button>
+        </form>
+        <div class="student-list" id="stList">
+          ${students.length ? students.map(s => studentRow(s)).join('') : `<p class="hint" style="padding:6px 2px">아직 등록된 학생이 없어요.</p>`}
+        </div>
+      </div>
+      <div class="panel">
+        <h3>이번 달 반 감정 분위기 <span class="hint">(익명)</span></h3>
+        ${emotionBars(dash?.emotions || [], true)}
+        <h3 class="mt">학생별 활동 <span class="hint">(최근 30일)</span></h3>
+        <div class="dash-table">
+          <div class="dt-row dt-head"><span>이름</span><span>접속일</span><span>체크인</span><span>10분독서</span><span>기록</span></div>
+          ${(dash?.students || []).map(s => `
+            <div class="dt-row"><span>${esc(s.name)}</span><span>${s.activeDays}</span><span>${s.checkins}</span><span>${s.routines}</span><span>${s.notes}</span></div>`).join('') || `<p class="hint" style="padding:6px 2px">학생 활동이 쌓이면 여기에 보여요.</p>`}
+        </div>
+      </div>
+    </div>`;
+  view.querySelector('#toShare').onclick = () => location.hash = '#/classroom/share';
+  view.querySelector('#copyCode').onclick = () => { navigator.clipboard?.writeText(ctx.class.code); toast('반 코드를 복사했어요.'); };
+  view.querySelector('#addForm').onsubmit = async e => {
+    e.preventDefault();
+    const name = view.querySelector('#stName').value.trim();
+    if (!name) return;
+    try { await api('/api/class/students', { method: 'POST', body: { name } }); viewClassroom(); }
+    catch (err) { toast(err.message); }
+  };
+  wireStudentRows();
+}
+
+function studentRow(s) {
+  return `<div class="student-row" data-sid="${s.id}">
+    <span class="sr-name">${esc(s.name)}</span>
+    <span class="sr-pin">PIN <b>${esc(s.pin || '····')}</b></span>
+    <button class="linkish" data-reset="${s.id}">PIN 재발급</button>
+    <button class="linkish danger" data-del="${s.id}">삭제</button>
+  </div>`;
+}
+function wireStudentRows() {
+  view.querySelectorAll('[data-reset]').forEach(b => { b.onclick = async () => {
+    try { await api(`/api/class/students/${b.dataset.reset}`, { method: 'PATCH', body: { resetPin: true } }); toast('PIN을 새로 만들었어요.'); viewClassroom(); }
+    catch (err) { toast(err.message); }
+  }; });
+  view.querySelectorAll('[data-del]').forEach(b => { b.onclick = async () => {
+    if (!confirm('이 학생을 반에서 삭제할까요? 기록도 함께 사라져요.')) return;
+    try { await api(`/api/class/students/${b.dataset.del}`, { method: 'DELETE' }); viewClassroom(); }
+    catch (err) { toast(err.message); }
+  }; });
+}
+
+// ── 학생 교실: 한 달 대시보드 ────────────────────
+async function studentClassroom() {
+  const d = await api('/api/me/dashboard');
+  const s = d.stats;
+  view.innerHTML = `
+    <div class="cls-head">
+      <div><h1>${esc(d.nickname)}의 한 달</h1>
+        <p class="hint" style="margin-top:-4px">최근 30일 동안 내가 살핀 마음과 읽은 시간이에요.</p></div>
+      <button class="btn ghost small" id="toShare">학급 공유 페이지 →</button>
+    </div>
+    <div class="stat-grid mt">
+      ${statTile('📅', s.activeDays, '접속한 날')}
+      ${statTile('🌊', s.checkins, '감정 체크인')}
+      ${statTile('⏱️', s.routines, '10분 독서')}
+      ${statTile('📚', s.saves, '내 서재 책')}
+      ${statTile('📝', s.notes, '남긴 기록')}
+      ${statTile('🌤️', (s.avgDelta > 0 ? '+' : '') + s.avgDelta, '읽고 난 마음 변화')}
+    </div>
+    <div class="panel mt">
+      <h3>이번 달 내 마음</h3>
+      ${emotionBars(d.emotions, false)}
+    </div>`;
+  view.querySelector('#toShare').onclick = () => location.hash = '#/classroom/share';
+}
+function statTile(icon, value, label) {
+  return `<div class="stat-tile"><span class="st-icon">${icon}</span><span class="st-value">${esc(String(value))}</span><span class="st-label">${esc(label)}</span></div>`;
+}
+
+// ── 학급 공유 페이지 ─────────────────────────────
+async function viewClassShare() {
+  if (!state.me) return needLogin('학급 공유');
+  let d;
+  try { d = await api('/api/class/share'); }
+  catch { view.innerHTML = `<div class="empty" style="margin-top:60px"><span class="big">🏫</span><p>학급에 소속된 뒤 볼 수 있어요.</p><button class="btn sage mt" id="toCls">교실로 가기</button></div>`; view.querySelector('#toCls').onclick = () => location.hash = '#/classroom'; return; }
+  view.innerHTML = `
+    <div class="cls-head">
+      <div><h1>${esc(d.className)} · 함께 나눠요</h1>
+        <p class="hint" style="margin-top:-4px">우리 반 ${d.studentCount}명이 읽은 책과 남긴 기록이에요. 감정은 반 전체 분위기로만 모아 보여줘요.</p></div>
+      <button class="btn ghost small" id="backCls">← 교실</button>
+    </div>
+
+    <div class="panel mt">
+      <h3>이번 달 우리 반 마음 <span class="hint">(익명 집계)</span></h3>
+      ${emotionBars(d.emotions, true)}
+    </div>
+
+    <h2 class="section-title mt">우리 반이 읽은 책</h2>
+    ${d.books.length ? `<div class="share-books">${d.books.map(b => `
+      <div class="sb-item">
+        ${b.cover ? `<img src="${esc(b.cover)}" alt="" onerror="this.remove()">` : '<span class="sb-noimg">📖</span>'}
+        <div class="sb-meta"><b>${esc(b.title)}</b><small>${esc(b.readers.join(', '))}</small></div>
+      </div>`).join('')}</div>` : `<p class="hint">아직 함께 읽은 책이 없어요. 10분 독서로 첫 책을 남겨 보세요.</p>`}
+
+    <h2 class="section-title mt">우리 반의 기록</h2>
+    ${d.records.length ? `<div class="share-records">${d.records.map(r => `
+      <div class="rec-item">
+        <p>${esc(r.text)}</p>
+        <div class="rec-foot"><b>${esc(r.name)}</b>${r.bookTitle ? ` · ${esc(r.bookTitle)}` : ''} <span class="s">${fmtDate(r.createdAt)}</span></div>
+      </div>`).join('')}</div>` : `<p class="hint">아직 공유된 기록이 없어요. 서재에서 ‘기록하기’로 남겨 보세요.</p>`}`;
+  view.querySelector('#backCls').onclick = () => location.hash = '#/classroom';
 }
 
 // ── 공통 ─────────────────────────────────────────
@@ -1598,7 +1837,8 @@ const ROUTES = {
   '/library': viewLibrary,
   '/routine': viewRoutine,
   '/challenges': viewChallenges,
-  '/classroom': viewClassroom
+  '/classroom': viewClassroom,
+  '/classroom/share': viewClassShare
 };
 
 async function route() {

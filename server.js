@@ -88,6 +88,7 @@ function publicUser(u) {
   const st = stageView(u, stageOf(u.points));
   return {
     id: u.id, username: u.username, nickname: u.nickname, plan: u.plan,
+    role: u.role || 'member', classId: u.classId || null,
     points: u.points, charName: u.charName, stage: { name: st.name, emoji: st.emoji, img: st.img, aura: st.aura }
   };
 }
@@ -756,6 +757,219 @@ app.get('/api/classroom', (req, res) => {
     links: { kyobo: `https://search.kyobobook.co.kr/search?keyword=${encodeURIComponent(b.title)}` }
   }));
   res.json({ books });
+});
+
+// ===== 학급 운영: 교사/학생 · 대시보드 · 학급 공유 =====
+const MONTH = 30 * DAY;
+function genClassCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 헷갈리는 글자(0,O,1,I) 제외
+  let code;
+  do {
+    code = Array.from({ length: 6 }, () => chars[Math.floor(hashOf(String(db.data.seq++) + code) % chars.length)]).join('');
+  } while (D().classes.some(c => c.code === code));
+  return code;
+}
+function genPin() {
+  return String(1000 + (hashOf(String(db.data.seq++) + 'pin') % 9000));
+}
+function classOfUser(u) {
+  if (!u) return null;
+  if (u.role === 'teacher') return D().classes.find(c => c.teacherId === u.id) || null;
+  if (u.role === 'student' && u.classId) return D().classes.find(c => c.id === u.classId) || null;
+  return null;
+}
+function studentName(u) { return u?.nickname || '학생'; }
+
+// 한 사람의 최근 30일 활동 요약
+function monthStats(uid) {
+  const since = Date.now() - MONTH;
+  const checkins = D().checkins.filter(c => c.userId === uid && c.createdAt >= since);
+  const routines = D().routines.filter(r => r.userId === uid && r.createdAt >= since);
+  const notes = D().notes.filter(n => n.userId === uid && n.createdAt >= since);
+  const saves = D().saves.filter(s => s.userId === uid);
+  const emo = {};
+  for (const c of checkins) emo[c.emotion] = (emo[c.emotion] || 0) + 1;
+  const days = new Set([...checkins, ...routines, ...notes].map(x => new Date(x.createdAt).toDateString()));
+  const deltas = routines.map(r => r.moodAfter - r.moodBefore);
+  const avgDelta = deltas.length ? +(deltas.reduce((a, b) => a + b, 0) / deltas.length).toFixed(1) : 0;
+  return {
+    checkins: checkins.length, routines: routines.length, notes: notes.length,
+    saves: saves.length, activeDays: days.size, minutes: routines.reduce((a, r) => a + r.minutes, 0),
+    avgDelta, emotions: emo
+  };
+}
+
+// 교사 계정으로 전환하며 학급 만들기 (없으면 생성, 있으면 그대로)
+app.post('/api/class', requireAuth, (req, res) => {
+  const u = req.user;
+  if (u.role === 'student') return res.status(403).json({ error: '학생 계정으로는 학급을 만들 수 없어요.' });
+  let cls = classOfUser(u);
+  if (!cls) {
+    const name = String(req.body?.name || '').trim().slice(0, 40) || `${u.nickname} 선생님의 반`;
+    if (!isClean(name)) return res.status(400).json({ error: '학급 이름에 부적절한 표현이 있어요.' });
+    u.role = 'teacher';
+    cls = { id: db.id(), teacherId: u.id, name, code: genClassCode(), createdAt: Date.now() };
+    D().classes.push(cls);
+    db.save(true);
+  }
+  res.json({ class: cls });
+});
+
+// 내 학급 컨텍스트 (교사/학생/미소속)
+app.get('/api/class', requireAuth, (req, res) => {
+  const u = req.user;
+  const cls = classOfUser(u);
+  if (!cls) return res.json({ role: u.role || 'member', class: null });
+  if (u.role === 'teacher') {
+    const students = D().users.filter(s => s.role === 'student' && s.classId === cls.id)
+      .map(s => {
+        const st = monthStats(s.id);
+        return { id: s.id, name: studentName(s), pin: s.pinPlain || null, activeDays: st.activeDays, checkins: st.checkins, routines: st.routines };
+      });
+    return res.json({ role: 'teacher', class: { id: cls.id, name: cls.name, code: cls.code }, students });
+  }
+  return res.json({ role: 'student', class: { id: cls.id, name: cls.name, code: cls.code } });
+});
+
+// 학생 등록 (교사)
+app.post('/api/class/students', requireAuth, (req, res) => {
+  const cls = classOfUser(req.user);
+  if (!cls || req.user.role !== 'teacher') return res.status(403).json({ error: '교사만 학생을 등록할 수 있어요.' });
+  const name = String(req.body?.name || '').trim().slice(0, 20);
+  if (name.length < 1) return res.status(400).json({ error: '학생 이름을 입력해 주세요.' });
+  if (!isClean(name)) return res.status(400).json({ error: '이름에 부적절한 표현이 있어요.' });
+  const pin = String(req.body?.pin || '').replace(/\D/g, '').slice(0, 4) || genPin();
+  const student = {
+    id: db.id(), username: `stu_${cls.code}_${db.data.seq}`, nickname: name,
+    role: 'student', classId: cls.id, plan: 'free',
+    pinPlain: pin, passwordHash: '', points: 0, pointLog: [], rewardedKeys: [], charName: null,
+    createdAt: Date.now()
+  };
+  D().users.push(student);
+  db.save(true);
+  res.json({ student: { id: student.id, name, pin } });
+});
+
+// 학생 정보 수정: 이름/핀 (교사)
+app.patch('/api/class/students/:id', requireAuth, (req, res) => {
+  const cls = classOfUser(req.user);
+  if (!cls || req.user.role !== 'teacher') return res.status(403).json({ error: '권한이 없어요.' });
+  const s = D().users.find(u => u.id === Number(req.params.id) && u.classId === cls.id && u.role === 'student');
+  if (!s) return res.status(404).json({ error: '학생을 찾을 수 없어요.' });
+  if (req.body?.name) {
+    const name = String(req.body.name).trim().slice(0, 20);
+    if (name && isClean(name)) s.nickname = name;
+  }
+  if (req.body?.resetPin) s.pinPlain = genPin();
+  db.save(true);
+  res.json({ student: { id: s.id, name: s.nickname, pin: s.pinPlain } });
+});
+
+// 학생 삭제 (교사)
+app.delete('/api/class/students/:id', requireAuth, (req, res) => {
+  const cls = classOfUser(req.user);
+  if (!cls || req.user.role !== 'teacher') return res.status(403).json({ error: '권한이 없어요.' });
+  const id = Number(req.params.id);
+  const s = D().users.find(u => u.id === id && u.classId === cls.id && u.role === 'student');
+  if (!s) return res.status(404).json({ error: '학생을 찾을 수 없어요.' });
+  D().users = D().users.filter(u => u.id !== id);
+  for (const t of Object.keys(D().sessions)) if (D().sessions[t] === id) delete D().sessions[t];
+  db.save(true);
+  res.json({ ok: true });
+});
+
+// 반 코드로 로스터(이름 목록) 가져오기 — 로그인 전 이름 고르기용
+app.get('/api/class/roster', (req, res) => {
+  const code = String(req.query.code || '').trim().toUpperCase();
+  const cls = D().classes.find(c => c.code === code);
+  if (!cls) return res.status(404).json({ error: '반 코드를 찾을 수 없어요.' });
+  const students = D().users.filter(u => u.role === 'student' && u.classId === cls.id)
+    .map(u => ({ id: u.id, name: u.nickname }));
+  res.json({ className: cls.name, students });
+});
+
+// 학생 로그인 (반 코드 + 이름(id) + PIN)
+app.post('/api/class/login', (req, res) => {
+  const code = String(req.body?.code || '').trim().toUpperCase();
+  const studentId = Number(req.body?.studentId) || null;
+  const pin = String(req.body?.pin || '').replace(/\D/g, '');
+  const cls = D().classes.find(c => c.code === code);
+  if (!cls) return res.status(404).json({ error: '반 코드를 찾을 수 없어요.' });
+  const s = D().users.find(u => u.id === studentId && u.classId === cls.id && u.role === 'student');
+  if (!s || s.pinPlain !== pin) return res.status(401).json({ error: '이름 또는 PIN이 올바르지 않아요.' });
+  const token = crypto.randomBytes(24).toString('hex');
+  D().sessions[token] = s.id;
+  db.save(true);
+  res.cookie('ms_token', token, COOKIE);
+  res.json({ user: publicUser(s) });
+});
+
+// 내 한 달 대시보드 (학생 본인/누구나)
+app.get('/api/me/dashboard', requireAuth, (req, res) => {
+  const st = monthStats(req.user.id);
+  const emotions = MOODS.map(m => ({ key: m.key, icon: m.icon, color: m.color, count: st.emotions[m.key] || 0 }))
+    .filter(e => e.count > 0).sort((a, b) => b.count - a.count);
+  res.json({
+    nickname: req.user.nickname, points: req.user.points || 0,
+    stats: { activeDays: st.activeDays, checkins: st.checkins, routines: st.routines, minutes: st.minutes, notes: st.notes, saves: st.saves, avgDelta: st.avgDelta },
+    emotions
+  });
+});
+
+// 학급 공유 페이지 — 읽은 책·기록은 이름과 함께, 감정은 익명 집계
+app.get('/api/class/share', requireAuth, (req, res) => {
+  const cls = classOfUser(req.user);
+  if (!cls) return res.status(403).json({ error: '학급에 소속되어 있지 않아요.' });
+  const since = Date.now() - MONTH;
+  const students = D().users.filter(u => u.role === 'student' && u.classId === cls.id);
+  const sids = new Set(students.map(s => s.id));
+
+  // 읽은 책 (10분 루틴 기록 기준) — 이름과 함께, 책별로 읽은 학생 모음
+  const readMap = new Map();
+  for (const r of D().routines.filter(x => sids.has(x.userId) && x.createdAt >= since)) {
+    const b = D().books.find(x => x.id === r.bookId); if (!b) continue;
+    const key = b.id;
+    if (!readMap.has(key)) readMap.set(key, { title: b.title, author: b.author, cover: bookCard(b).cover, readers: new Set() });
+    readMap.get(key).readers.add(studentName(students.find(s => s.id === r.userId)));
+  }
+  const books = [...readMap.values()].map(x => ({ title: x.title, author: x.author, cover: x.cover, readers: [...x.readers] }))
+    .sort((a, b) => b.readers.length - a.readers.length).slice(0, 40);
+
+  // 기록(메모) — 이름과 함께
+  const records = D().notes.filter(n => sids.has(n.userId) && n.createdAt >= since)
+    .sort((a, b) => b.createdAt - a.createdAt).slice(0, 60)
+    .map(n => {
+      const s = students.find(x => x.id === n.userId);
+      const b = D().books.find(x => x.id === n.bookId);
+      return { name: studentName(s), text: n.text, bookTitle: b?.title || '', createdAt: n.createdAt };
+    });
+
+  // 반 감정 분위기 — 익명 집계 (한 달)
+  const emo = {};
+  for (const c of D().checkins.filter(x => sids.has(x.userId) && x.createdAt >= since)) emo[c.emotion] = (emo[c.emotion] || 0) + 1;
+  const total = Object.values(emo).reduce((a, b) => a + b, 0) || 1;
+  const emotions = MOODS.map(m => ({ key: m.key, icon: m.icon, color: m.color, count: emo[m.key] || 0, pct: Math.round((emo[m.key] || 0) / total * 100) }))
+    .filter(e => e.count > 0).sort((a, b) => b.count - a.count);
+
+  res.json({ className: cls.name, studentCount: students.length, books, records, emotions });
+});
+
+// 교사 대시보드 — 학생별 월간 요약 + 반 감정 익명 집계
+app.get('/api/class/dashboard', requireAuth, (req, res) => {
+  const cls = classOfUser(req.user);
+  if (!cls || req.user.role !== 'teacher') return res.status(403).json({ error: '교사만 볼 수 있어요.' });
+  const students = D().users.filter(u => u.role === 'student' && u.classId === cls.id).map(s => {
+    const st = monthStats(s.id);
+    return { id: s.id, name: studentName(s), activeDays: st.activeDays, checkins: st.checkins, routines: st.routines, notes: st.notes, avgDelta: st.avgDelta };
+  });
+  const since = Date.now() - MONTH;
+  const sids = new Set(students.map(s => s.id));
+  const emo = {};
+  for (const c of D().checkins.filter(x => sids.has(x.userId) && x.createdAt >= since)) emo[c.emotion] = (emo[c.emotion] || 0) + 1;
+  const total = Object.values(emo).reduce((a, b) => a + b, 0) || 1;
+  const emotions = MOODS.map(m => ({ key: m.key, icon: m.icon, color: m.color, count: emo[m.key] || 0, pct: Math.round((emo[m.key] || 0) / total * 100) }))
+    .filter(e => e.count > 0).sort((a, b) => b.count - a.count);
+  res.json({ class: { name: cls.name, code: cls.code }, students, emotions });
 });
 
 // ---------- 동반자 "마음이" 성장 화면 ----------

@@ -15,7 +15,8 @@ const DATA_FILE = path.join(DATA_DIR, 'data.json');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const EMPTY = {
-  users: [],
+  users: [],          // 일반/교사/학생. role: undefined|'teacher'|'student', classId, pinHash
+  classes: [],        // { id, teacherId, name, code, createdAt } = 학급
   books: [],          // 큐레이션 도서 카탈로그 (시드)
   challenges: [],     // 감정 주제별 독서 챌린지 (시드)
   checkins: [],       // { userId, emotion, note, situations[], intensity, bookIds[], createdAt }
