@@ -7,6 +7,12 @@ import { BOOKS, CLASSROOM } from '../seed.js';
 const TTB = process.env.TTB_KEY || 'ttbsoave4240955001';
 const OUT = new URL('../covers.json', import.meta.url);
 
+// 제목 검색이 엉뚱한 책을 집는 경우(동명이인·짧은 제목), ISBN13으로 못 박는다.
+const OVERRIDES = {
+  '화': '9788976777300',            // 틱낫한, 「화 - 화가 풀리면 인생도 풀린다」 개정판
+  '모든 요일의 기록': '9791185459271' // 김민철 (같은 저자 「모든 요일의 여행」과 혼동 방지)
+};
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 저자 문자열에서 이름 토큰만 뽑아 매칭에 쓴다. '에밀 아자르(로맹 가리)' → ['에밀','아자르','로맹','가리']
@@ -35,7 +41,16 @@ function upsize(url) {
   return (url || '').replace('/coversum/', '/cover200/');
 }
 
+async function lookupByIsbn(isbn13) {
+  const url = `https://www.aladin.co.kr/ttb/api/ItemLookUp.aspx?ttbkey=${TTB}`
+    + `&itemIdType=ISBN13&ItemId=${isbn13}&output=js&Version=20131101`;
+  const data = JSON.parse(await (await fetch(url)).text());
+  if (data.errorCode) throw new Error(`알라딘 오류 ${data.errorCode}: ${data.errorMessage}`);
+  return (data.item || [])[0] || null;
+}
+
 async function search(book) {
+  if (OVERRIDES[book.title]) return lookupByIsbn(OVERRIDES[book.title]);
   const q = encodeURIComponent(book.title);
   const url = `https://www.aladin.co.kr/ttb/api/ItemSearch.aspx?ttbkey=${TTB}`
     + `&Query=${q}&QueryType=Title&MaxResults=10&start=1&SearchTarget=Book`
