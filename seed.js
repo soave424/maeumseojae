@@ -97,9 +97,9 @@ export const MASTERS = [
 // ─────────────────────────────────────────────────────────────
 export const MEMBERSHIPS = [
   {
-    id: 'kickstart', name: '작심삼일 패스', price: '900원', period: ' · 1회', tagline: '딱 3일, 작심삼일만 넘겨봐요',
+    id: 'kickstart', name: '작심삼일 패스', price: '1,900원', period: ' · 1회권', tagline: '딱 3일, 작심삼일만 넘겨봐요',
     features: ['3일 독서 킥오프 챌린지', '매일 감정 체크인 알림', '하루 10분 · 한 문장 필사', '3일 완주 뱃지'],
-    cta: '900원으로 시작', accent: '#C0794A'
+    cta: '1,900원으로 시작', accent: '#C0794A'
   },
   {
     id: 'basic', name: '베이직', price: '4,900원', period: '/월', tagline: '매일 곁에 두기', badge: '인기',
