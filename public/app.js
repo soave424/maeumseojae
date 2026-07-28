@@ -282,6 +282,17 @@ async function loadMe() {
   return user;
 }
 
+// 세션은 살아있는데 state.me 가 비어 있으면(콜드스타트·쿠키 타이밍·상태 stale) 복구한다.
+// 로그인 게이트 화면이 잘못 "로그인 필요"로 뜨는 문제를 막는다.
+async function ensureMe() {
+  if (state.me) return state.me;
+  try {
+    const { user } = await api('/api/me');
+    if (user) { state.me = user; await loadSaves(); renderAuth(); }
+  } catch { /* 네트워크 실패 시 그대로 로그아웃 취급 */ }
+  return state.me;
+}
+
 // ── 처방 카드 ────────────────────────────────────
 function cardHTML(pick, situations = []) {
   const b = pick.book;
@@ -1852,6 +1863,7 @@ const ROUTES = {
   '/classroom/share': viewClassShare
 };
 
+const AUTH_PATHS = new Set(['/character', '/copy', '/library', '/routine', '/classroom', '/classroom/share']);
 async function route() {
   clearInterval(timerId);
   let raw = location.hash.slice(1) || '/';
@@ -1859,17 +1871,29 @@ async function route() {
   if (path === '/report') { location.hash = '#/character'; return; } // 옛 링크 호환
   const params = new URLSearchParams(query || '');
   navEl.querySelectorAll('a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === `#${path}`));
+  // 로그인 필요한 화면인데 state.me 가 비어 있으면, 게이트로 막기 전에 세션을 한 번 복구 시도
+  if (!state.me && AUTH_PATHS.has(path)) await ensureMe();
   const fn = ROUTES[path] || viewCheckin;
   try { await fn(params); }
-  catch (err) { view.innerHTML = `<div class="empty"><span class="big">🌫️</span>${esc(err.message)}</div>`; }
+  catch (err) {
+    // 세션이 끊긴 뒤(401) stale 한 state.me 로 화면이 터지면, 깔끔한 로그인 안내로 대체
+    if (/로그인이 필요/.test(err.message || '')) {
+      state.me = null; renderAuth();
+      view.innerHTML = `<div class="empty" style="margin-top:60px"><span class="big">🔑</span><p>로그인이 필요한 화면이에요.</p><button class="btn sage mt" id="li2">로그인 / 가입</button></div>`;
+      view.querySelector('#li2').onclick = () => openAuthModal();
+    } else {
+      view.innerHTML = `<div class="empty"><span class="big">🌫️</span>${esc(err.message)}</div>`;
+    }
+  }
   window.scrollTo({ top: 0 });
 }
 
 (async function init() {
-  state.meta = await api('/api/meta');
-  const { user } = await api('/api/me');
-  state.me = user;
-  await loadSaves();
+  // 콜드스타트/일시 오류에도 앱은 반드시 뜨게 한다. 실패한 조각은 이후 화면 진입 시 복구.
+  try { state.meta = await api('/api/meta'); }
+  catch { state.meta = state.meta || { emotions: [], modes: [], helplines: [], stages: [], pointRules: [] }; }
+  try { const { user } = await api('/api/me'); state.me = user; } catch { /* 세션은 route()의 ensureMe 로 복구 */ }
+  await loadSaves().catch(() => {});
   renderAuth();
   window.addEventListener('hashchange', route);
   route();
