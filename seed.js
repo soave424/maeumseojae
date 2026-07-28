@@ -139,10 +139,10 @@ export const STAGES = [
   { emoji: '🥚', img: '/characters/mind/cradle.png', name: '요람이', min: 0,   aura: '', scale: 1.0,  blurb: '이제 막 서재에 도착해 요람에서 쌔근쌔근 잠든' },
   { emoji: '🐛', img: '/characters/mind/crawl.png',  name: '꼬물이', min: 40,  aura: '', scale: 1.0,  blurb: '꼬물꼬물 책장 사이를 기어 다니기 시작한' },
   { emoji: '🐛', img: '/characters/mind/kinder.png', name: '아장이', min: 100, aura: '', scale: 1.0,  blurb: '책가방을 메고 유치원 가는, 무럭무럭 자라는' },
-  { emoji: '🎒', img: '/characters/mind/school.png',  name: '초롱이', min: 180, aura: '',       scale: 1.0, blurb: '책가방 메고 학교 가는, 눈이 초롱초롱한' },
-  { emoji: '🌟', img: '/characters/mind/dream.png',   name: '꿈별이', min: 280, aura: '',       scale: 1.0, blurb: '책 속에서 꿈을 키우는, 별처럼 반짝이는' },
-  { emoji: '✨', img: '/characters/mind/sparkle.png', name: '반짝이', min: 400, aura: 'glow-1', scale: 1.0, blurb: '마음에 날개가 돋아 반짝이기 시작한' },
-  { emoji: '🦋', img: '/characters/mind/fly.png',     name: '훨훨이', min: 560, aura: 'glow-3', scale: 1.0, blurb: '책이 준 날개로 마침내 훨훨 날아오른' }
+  { emoji: '🎒', img: '/characters/mind/student.png',  name: '초롱이', min: 180, aura: '',       scale: 1.0, blurb: '책가방 메고 학교 다니는, 배움이 한창인' },
+  { emoji: '🎓', img: '/characters/mind/graduate.png', name: '꿈별이', min: 280, aura: '',       scale: 1.0, blurb: '학사모를 쓰고 한 시절을 잘 마친, 어엿한 졸업생' },
+  { emoji: '🧳', img: '/characters/mind/travel.png',   name: '반짝이', min: 400, aura: 'glow-1', scale: 1.0, blurb: '배낭을 메고 새로운 세상으로 여행을 떠나는' },
+  { emoji: '🦋', img: '/characters/mind/fly.png',      name: '훨훨이', min: 560, aura: 'glow-3', scale: 1.0, blurb: '책이 준 날개로 마침내 훨훨 날아오른' }
 ];
 
 // 마지막 단계에서 사용자마다 배정되는 나비 종류 (서버에서 id 기반으로 안정 배정)
