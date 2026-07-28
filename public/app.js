@@ -155,14 +155,14 @@ function stageIcon(st, px) {
 }
 
 function celebrateLevelUp(award) {
-  const isButterfly = /나비$/.test(award.stage || '');
+  const isFinal = /훨훨이$|나비$/.test(award.stage || '');
   const back = document.createElement('div');
   back.className = 'modal-back';
   back.innerHTML = `
     <div class="modal levelup">
       <div class="lu-emoji ${award.stageAura || ''}">${stageIcon({ img: award.stageImg, emoji: award.stageEmoji, name: award.stage }, 96)}</div>
-      <h2>${isButterfly ? '마음이가 나비가 되었어요!' : '마음이가 자랐어요!'}</h2>
-      <p class="sub">이제 <b>${esc(award.stage)}</b>${isButterfly ? '가 되었어요.' : ' 단계예요.'} ${esc(award.stageBlurb || '')}</p>
+      <h2>${isFinal ? '마음이가 훨훨 날아올랐어요!' : '마음이가 자랐어요!'}</h2>
+      <p class="sub">이제 <b>${esc(award.stage)}</b>${isFinal ? '가 되었어요.' : ' 단계예요.'} ${esc(award.stageBlurb || '')}</p>
       <button class="btn sage" style="width:100%" id="lu-ok">마음이 보러 가기</button>
       <button class="linkish mt" id="lu-close" style="display:block;margin:12px auto 0">닫기</button>
     </div>`;
