@@ -85,7 +85,7 @@ function publicUser(u) {
   const st = stageView(u, stageOf(u.points));
   return {
     id: u.id, username: u.username, nickname: u.nickname, plan: u.plan,
-    points: u.points, charName: u.charName, stage: { name: st.name, emoji: st.emoji, aura: st.aura }
+    points: u.points, charName: u.charName, stage: { name: st.name, emoji: st.emoji, img: st.img, aura: st.aura }
   };
 }
 
@@ -110,7 +110,7 @@ function butterflyOf(u) {
 }
 // 표시용 단계: 나비 단계면 name 을 사용자의 나비 종류로 바꿔 준다.
 function stageView(u, st) {
-  return { emoji: st.emoji, name: st.butterfly ? butterflyOf(u) : st.name, aura: st.aura, scale: st.scale, min: st.min, blurb: st.blurb };
+  return { emoji: st.emoji, img: st.img || null, name: st.butterfly ? butterflyOf(u) : st.name, aura: st.aura, scale: st.scale, min: st.min, blurb: st.blurb };
 }
 
 // 다음 단계까지의 진행도
@@ -134,7 +134,7 @@ function award(u, amount, reason) {
   const view = stageView(u, after);
   return {
     amount, points: u.points, levelUp: after.name !== before.name,
-    stage: view.name, stageEmoji: view.emoji, stageAura: view.aura, stageBlurb: view.blurb
+    stage: view.name, stageEmoji: view.emoji, stageImg: view.img, stageAura: view.aura, stageBlurb: view.blurb
   };
 }
 

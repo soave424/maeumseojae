@@ -369,6 +369,10 @@ button.btn.small { padding: 7px 13px; font-size: 13.5px; }
   background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--sage) 18%, transparent), transparent 70%);
 }
 .comp-emoji { font-size: 76px; line-height: 1; animation: float 4s ease-in-out infinite; }
+/* 마음이 단계 이미지 (이모지 자리에 들어가는 커스텀 그림) */
+.stage-img { object-fit: contain; vertical-align: middle; display: inline-block; }
+.charchip .cc-e .stage-img { display: block; }
+.track-step .ts-emoji .stage-img { border-radius: 8px; }
 @keyframes float { 0%,100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-10px) rotate(2deg); } }
 
 /* 후반 단계 광채 */

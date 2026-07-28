@@ -136,9 +136,9 @@ export const HASHTAGS = [
 // 마지막 단계 name 은 사용자마다 "나비 종류 랜덤"으로 서버에서 채운다(butterfly:true).
 // ─────────────────────────────────────────────────────────────
 export const STAGES = [
-  { emoji: '🥚', name: '책알',        min: 0,   aura: '',       scale: 0.82, blurb: '이제 막 서재에 도착한 작은 알' },
-  { emoji: '🐛', name: '꼬물 애벌레',  min: 40,  aura: '',       scale: 0.9,  blurb: '꼬물꼬물 책장을 기어 다니기 시작한' },
-  { emoji: '🐛', name: '무럭 애벌레',  min: 100, aura: '',       scale: 1.0,  blurb: '책을 갉아먹으며 무럭무럭 자라는' },
+  { emoji: '🥚', img: '/characters/mind/cradle.png', name: '요람이', min: 0,   aura: '', scale: 1.0,  blurb: '이제 막 서재에 도착해 요람에서 쌔근쌔근 잠든' },
+  { emoji: '🐛', img: '/characters/mind/crawl.png',  name: '꼬물이', min: 40,  aura: '', scale: 1.0,  blurb: '꼬물꼬물 책장 사이를 기어 다니기 시작한' },
+  { emoji: '🐛', img: '/characters/mind/kinder.png', name: '아장이', min: 100, aura: '', scale: 1.0,  blurb: '책가방을 메고 유치원 가는, 무럭무럭 자라는' },
   { emoji: '🐛', name: '통통 애벌레',  min: 180, aura: '',       scale: 1.12, blurb: '읽은 문장으로 통통하게 여문' },
   { emoji: '🐚', name: '꿈번데기',     min: 280, aura: '',       scale: 1.0,  blurb: '고치 속에서 다음 날개를 꿈꾸는' },
   { emoji: '🦋', name: '날개돋움중',   min: 400, aura: 'glow-1', scale: 1.08, blurb: '막 날개를 펴 올리는' },

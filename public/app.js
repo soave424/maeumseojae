@@ -144,13 +144,23 @@ function flashAward(award) {
   if (award.levelUp) celebrateLevelUp(award);
 }
 
+// 마음이 단계 아이콘: 이미지가 있으면 이미지, 없거나 로드 실패 시 이모지로 폴백.
+function stageIcon(st, px) {
+  const emoji = (st && st.emoji) || '🌱';
+  if (st && st.img) {
+    return `<img class="stage-img" src="${st.img}" alt="${esc(st.name || '')}" width="${px}" height="${px}"
+      loading="lazy" onerror="this.replaceWith(document.createTextNode('${emoji}'))">`;
+  }
+  return emoji;
+}
+
 function celebrateLevelUp(award) {
   const isButterfly = /나비$/.test(award.stage || '');
   const back = document.createElement('div');
   back.className = 'modal-back';
   back.innerHTML = `
     <div class="modal levelup">
-      <div class="lu-emoji ${award.stageAura || ''}">${award.stageEmoji}</div>
+      <div class="lu-emoji ${award.stageAura || ''}">${stageIcon({ img: award.stageImg, emoji: award.stageEmoji, name: award.stage }, 96)}</div>
       <h2>${isButterfly ? '마음이가 나비가 되었어요!' : '마음이가 자랐어요!'}</h2>
       <p class="sub">이제 <b>${esc(award.stage)}</b>${isButterfly ? '가 되었어요.' : ' 단계예요.'} ${esc(award.stageBlurb || '')}</p>
       <button class="btn sage" style="width:100%" id="lu-ok">마음이 보러 가기</button>
@@ -167,9 +177,8 @@ function celebrateLevelUp(award) {
 function renderAuth() {
   if (state.me) {
     const p = state.me.points || 0;
-    const em = state.me.stage?.emoji || '🥚';
     authEl.innerHTML = `
-      <a class="charchip" href="#/character" title="마음이 보러 가기"><span class="cc-e">${em}</span> <b>${p}</b></a>
+      <a class="charchip" href="#/character" title="마음이 보러 가기"><span class="cc-e">${stageIcon(state.me.stage, 20)}</span> <b>${p}</b></a>
       <span class="who">${esc(state.me.nickname)} 님</span>
       <button class="btn ghost small" id="logout">로그아웃</button>`;
     document.getElementById('logout').onclick = async () => {
@@ -807,7 +816,7 @@ async function viewCharacter() {
 
     <div class="companion mt">
       <div class="comp-stage ${c.stage.aura}">
-        <div class="comp-emoji ${c.stage.aura}" style="font-size:calc(76px * ${c.stage.scale || 1})">${c.stage.emoji}</div>
+        <div class="comp-emoji ${c.stage.aura}" style="font-size:calc(76px * ${c.stage.scale || 1})">${stageIcon(c.stage, Math.round(120 * (c.stage.scale || 1)))}</div>
       </div>
       <div class="comp-info">
         <div class="comp-name" id="compName">
@@ -830,7 +839,7 @@ async function viewCharacter() {
     <div class="track">
       ${c.stages.map((s, i) => `
         <div class="track-step ${i === c.stageIndex ? 'now' : i < c.stageIndex ? 'done' : 'locked'}">
-          <div class="ts-emoji ${s.aura}">${s.emoji}</div>
+          <div class="ts-emoji ${s.aura}">${stageIcon(s, 40)}</div>
           <div class="ts-name">${esc(s.name)}</div>
           <div class="ts-min">${s.min}p</div>
         </div>`).join('<div class="track-line"></div>')}
