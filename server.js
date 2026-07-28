@@ -21,6 +21,9 @@ try {
   COVERS = createRequire(import.meta.url)('./covers.json');
 } catch { COVERS = {}; }
 
+// 알라딘 Open API 키 (책 검색용). 배포 시 TTB_KEY 로 덮어쓸 수 있다.
+const TTB_KEY = process.env.TTB_KEY || 'ttbsoave4240955001';
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PROD = process.env.NODE_ENV === 'production';
@@ -214,12 +217,19 @@ function bookCard(b) {
   const q = encodeURIComponent(b.title);
   const v = villageForEmotion(b.emotion);
   const cv = COVERS[b.title] || null;
+  // 커스텀(검색으로 담은) 책은 책 레코드에 표지·isbn·itemId 를 직접 들고 있다.
+  const cover = b.cover || cv?.cover || null;
+  const isbn13 = b.isbn13 || cv?.isbn13 || null;
+  const productLink = b.itemId
+    ? `https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=${b.itemId}`
+    : (cv?.link ? cv.link.replace(/&?partner=openAPI/g, '').replace(/&?start=api/g, '') : null);
   return {
     id: b.id,
     title: b.title,
     author: b.author,
     mode: b.mode,
     emotion: b.emotion,
+    custom: !!b.custom,
     village: v ? { key: v.key, name: v.name, color: v.color, char: v.char, vibe: v.vibe } : null,
     minutes: b.minutes,
     portion: b.portion,
@@ -227,14 +237,11 @@ function bookCard(b) {
     curatorNote: b.curatorNote,
     question: b.question,
     situations: b.situations || [],
-    cover: cv?.cover || null,
-    isbn13: cv?.isbn13 || null,
+    cover,
+    isbn13,
     links: {
       kyobo: `https://search.kyobobook.co.kr/search?keyword=${q}`,
-      // 표지를 확보한 책은 알라딘 상품 페이지로 바로 연결(제휴 파라미터 제거)
-      aladin: cv?.link
-        ? cv.link.replace(/&?partner=openAPI/g, '').replace(/&?start=api/g, '')
-        : `https://www.aladin.co.kr/search/wsearchresult.aspx?SearchWord=${q}`
+      aladin: productLink || `https://www.aladin.co.kr/search/wsearchresult.aspx?SearchWord=${q}`
     }
   };
 }
@@ -477,6 +484,101 @@ app.post('/api/saves/:bookId', requireAuth, (req, res) => {
   res.json({ saved: !existing, award: awardRes });
 });
 
+// ---------- 알라딘 책 검색 (10분 루틴에서 직접 책 넣기) ----------
+function upsizeCover(url) {
+  return (url || '').replace('/coversum/', '/cover200/');
+}
+app.get('/api/books/search', requireAuth, async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.json({ results: [] });
+  if (!rateLimit(req.user.id, 'search', 600)) {
+    return res.status(429).json({ error: '검색이 너무 잦아요. 잠시 후 다시 시도해 주세요.' });
+  }
+  try {
+    const url = `https://www.aladin.co.kr/ttb/api/ItemSearch.aspx?ttbkey=${TTB_KEY}`
+      + `&Query=${encodeURIComponent(q)}&QueryType=Keyword&MaxResults=10&start=1`
+      + `&SearchTarget=Book&Sort=SalesPoint&output=js&Version=20131101`;
+    const data = JSON.parse(await (await fetch(url)).text());
+    if (data.errorCode) return res.status(502).json({ error: '검색 서비스를 불러오지 못했어요.' });
+    const results = (data.item || []).map(it => ({
+      title: String(it.title || '').replace(/\s*-\s*.*$/, '').trim() || it.title,
+      fullTitle: it.title,
+      author: (it.author || '').replace(/\s*\(지은이\).*$/, '').trim() || it.author,
+      cover: upsizeCover(it.cover),
+      isbn13: it.isbn13 || '',
+      itemId: it.itemId || null
+    })).filter(r => r.title);
+    res.json({ results });
+  } catch {
+    res.status(502).json({ error: '검색 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.' });
+  }
+});
+
+// 검색 결과로 고른 책을 카탈로그에 없으면 새로 만들어(커스텀) id 를 돌려준다.
+app.post('/api/books/custom', requireAuth, (req, res) => {
+  const title = String(req.body?.title || '').trim().slice(0, 200);
+  const author = String(req.body?.author || '').trim().slice(0, 200);
+  const isbn13 = String(req.body?.isbn13 || '').trim().slice(0, 20);
+  const cover = String(req.body?.cover || '').trim().slice(0, 400);
+  const itemId = Number(req.body?.itemId) || null;
+  if (title.length < 1) return res.status(400).json({ error: '책 제목이 필요해요.' });
+  if (!isClean(title) || (author && !isClean(author))) {
+    return res.status(400).json({ error: '부적절한 표현이 포함되어 있어요.' });
+  }
+  // 이미 있는 책이면(카탈로그·커스텀 불문) 재사용 — isbn 우선, 없으면 제목+저자
+  const norm = s => String(s || '').replace(/\s+/g, '').toLowerCase();
+  let book = D().books.find(b =>
+    (isbn13 && b.isbn13 === isbn13) ||
+    (norm(b.title) === norm(title) && norm(b.author) === norm(author)));
+  if (!book) {
+    book = {
+      id: db.id(), audience: 'adult', custom: true,
+      title, author, mode: 'light', emotion: null, alsoFor: [], situations: [],
+      minutes: 10, portion: '오늘 읽고 싶은 만큼',
+      why: '', curatorNote: '', question: '',
+      cover: cover || null, isbn13: isbn13 || null, itemId
+    };
+    D().books.push(book);
+    db.save(true);
+  }
+  res.json({ book: bookCard(book) });
+});
+
+// ---------- 서재 메모(기록하기) ----------
+app.get('/api/notes', requireAuth, (req, res) => {
+  const list = D().notes
+    .filter(n => n.userId === req.user.id)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map(n => {
+      const b = D().books.find(x => x.id === n.bookId);
+      return { id: n.id, bookId: n.bookId, text: n.text, createdAt: n.createdAt, title: b?.title || '', author: b?.author || '' };
+    });
+  res.json({ notes: list });
+});
+
+app.post('/api/notes', requireAuth, (req, res) => {
+  const bookId = Number(req.body?.bookId) || null;
+  const text = String(req.body?.text || '').trim().slice(0, 1000);
+  if (!bookId || !D().books.some(b => b.id === bookId)) return res.status(404).json({ error: '책을 찾을 수 없습니다.' });
+  if (text.length < 1) return res.status(400).json({ error: '메모를 입력해 주세요.' });
+  if (!isClean(text)) return res.status(400).json({ error: '부적절한 표현이 포함되어 있어요.' });
+  const n = { id: db.id(), userId: req.user.id, bookId, text, createdAt: Date.now() };
+  D().notes.push(n);
+  const awardRes = awardOnce(req.user, `note:${n.id}`, 5, '독서 메모');
+  db.save(true);
+  res.json({ ok: true, note: { id: n.id, bookId, text: n.text, createdAt: n.createdAt }, award: awardRes });
+});
+
+app.delete('/api/notes/:id', requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  const n = D().notes.find(x => x.id === id);
+  if (!n) return res.status(404).json({ error: '메모를 찾을 수 없습니다.' });
+  if (n.userId !== req.user.id) return res.status(403).json({ error: '본인 메모만 지울 수 있어요.' });
+  D().notes = D().notes.filter(x => x.id !== id);
+  db.save(true);
+  res.json({ ok: true });
+});
+
 // ---------- 문장 저장 ----------
 app.get('/api/quotes', requireAuth, (req, res) => {
   const list = D().quotes
@@ -522,6 +624,16 @@ app.post('/api/routines', requireAuth, (req, res) => {
 
   const r = { id: db.id(), userId: req.user.id, bookId, minutes, moodBefore, moodAfter, note, createdAt: Date.now() };
   D().routines.push(r);
+
+  // 10분 읽은 책은 내 서재에 자동으로 담긴다 (아직 없을 때만).
+  let autoSaved = false;
+  if (bookId && D().books.some(b => b.id === bookId)
+      && !D().saves.some(s => s.userId === req.user.id && s.bookId === bookId)) {
+    D().saves.push({ userId: req.user.id, bookId, destinationVillage: null, createdAt: Date.now() });
+    awardOnce(req.user, `save:${bookId}`, 5, '책 담기');
+    autoSaved = true;
+  }
+
   // 하루 3번까지 기본 20점, 읽고 나서 마음이 나아졌으면 보너스 10점
   let awardRes = dailyAward(req.user, 'routine', 3, 20, '10분 독서');
   if (moodAfter > moodBefore) {
@@ -529,7 +641,7 @@ app.post('/api/routines', requireAuth, (req, res) => {
     awardRes = { amount: awardRes.amount + 10, points: bonus.points, levelUp: awardRes.levelUp || bonus.levelUp, stage: bonus.stage, stageEmoji: bonus.stageEmoji };
   }
   db.save(true);
-  res.json({ ok: true, delta: moodAfter - moodBefore, award: awardRes });
+  res.json({ ok: true, delta: moodAfter - moodBefore, award: awardRes, autoSaved });
 });
 
 // ---------- 주간 리포트 (§4 고객 관계, §12 성공 지표) ----------

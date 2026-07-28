@@ -21,6 +21,7 @@ const EMPTY = {
   checkins: [],       // { userId, emotion, note, situations[], intensity, bookIds[], createdAt }
   saves: [],          // { userId, bookId, createdAt }  = 내 서재에 담은 책
   quotes: [],         // { id, userId, bookId, text, createdAt } = 저장한 문장
+  notes: [],          // { id, userId, bookId, text, createdAt } = 서재 책에 남긴 메모(기록)
   routines: [],       // { id, userId, bookId, minutes, moodBefore, moodAfter, note, createdAt }
   copies: [],         // { id, userId, bookId, text, accuracy, createdAt } = 필사 기록
   feedback: [],       // { checkinId, userId, helpful, comment, createdAt }

@@ -1039,6 +1039,62 @@ function openCopyModal(bookId) {
   }).catch(err => { back.querySelector('#cw').innerHTML = `<p class="err">${esc(err.message)}</p>`; });
 }
 
+// ── 서재 책에 메모 남기기(기록하기) ──────────────
+function openNoteModal(book) {
+  if (!book) return;
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = `
+    <div class="modal wide">
+      <h2>📝 기록하기</h2>
+      <p class="sub">『${esc(book.title)}』을(를) 읽으며 떠오른 생각을 남겨 두세요.</p>
+      <div class="field">
+        <textarea id="noteText" rows="4" maxlength="1000" placeholder="오늘 이 책에서 마음에 남은 것, 떠오른 생각을 적어 보세요."></textarea>
+      </div>
+      <button class="btn sage" id="noteSave" style="width:100%">기록 저장 <span class="pilltag">+5</span></button>
+      <div class="note-list" id="noteList"><div class="spinner">기록을 불러오는 중…</div></div>
+      <button class="linkish mt" id="nclose" style="display:block;margin:14px auto 0">닫기</button>
+    </div>`;
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.onclick = e => { if (e.target === back) close(); };
+  back.querySelector('#nclose').onclick = close;
+
+  const listEl = back.querySelector('#noteList');
+  async function loadNotes() {
+    try {
+      const { notes } = await api('/api/notes');
+      const mine = notes.filter(n => n.bookId === book.id);
+      listEl.innerHTML = mine.length
+        ? mine.map(n => `
+            <div class="note-item">
+              <p>${esc(n.text)}</p>
+              <div class="note-foot"><span class="s">${fmtDate(n.createdAt)}</span>
+                <button class="linkish" data-delnote="${n.id}">삭제</button></div>
+            </div>`).join('')
+        : `<p class="hint" style="padding:6px 2px">아직 남긴 기록이 없어요.</p>`;
+      listEl.querySelectorAll('[data-delnote]').forEach(btn => {
+        btn.onclick = async () => {
+          await api(`/api/notes/${btn.dataset.delnote}`, { method: 'DELETE' });
+          loadNotes();
+        };
+      });
+    } catch (err) { listEl.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
+  }
+
+  back.querySelector('#noteSave').onclick = async () => {
+    const text = back.querySelector('#noteText').value.trim();
+    if (text.length < 1) return toast('메모를 입력해 주세요.');
+    try {
+      const { award } = await api('/api/notes', { method: 'POST', body: { bookId: book.id, text } });
+      back.querySelector('#noteText').value = '';
+      if (award && award.amount) flashAward(award); else toast('기록을 저장했어요 📝');
+      loadNotes();
+    } catch (err) { toast(err.message); }
+  };
+  loadNotes();
+}
+
 // ── 화면: 필사 ───────────────────────────────────
 const COPY_TABS = [
   { src: 'classic', label: '고전 명언' },
@@ -1102,13 +1158,16 @@ function bookCardHTML(b) {
   return `
     <article class="book" style="--c:${c}">
       <div class="book-cover" data-detail="${b.id}" role="button" tabindex="0">
-        <div class="book-band">${iconOf(b.emotion)} ${esc(b.emotion)}${vname ? ` <span class="to">→</span> ${esc(vname)}${b.viaCheckin ? ' <span class="via" title="체크인에서 직접 고른 마을">✓</span>' : ''}` : ''}</div>
+        <div class="book-band">${b.emotion
+          ? `${iconOf(b.emotion)} ${esc(b.emotion)}${vname ? ` <span class="to">→</span> ${esc(vname)}${b.viaCheckin ? ' <span class="via" title="체크인에서 직접 고른 마을">✓</span>' : ''}` : ''}`
+          : '📖 직접 담은 책'}</div>
         <h3 class="book-title serif">${esc(b.title)}</h3>
         <div class="book-author">${esc(b.author)}</div>
         <div class="book-meta">${b.readMinutes > 0 ? `📖 ${b.readMinutes}분 · ` : ''}${fmtDate(b.savedAt)} 담음</div>
         <div class="book-actions">
           <button class="bk-ic" data-copy="${b.id}" title="필사" aria-label="필사">✍️</button>
           <button class="bk-ic" data-read="${b.id}" title="읽기모드" aria-label="읽기모드">⏱️</button>
+          <button class="bk-ic" data-note="${b.id}" title="기록하기" aria-label="기록하기">📝</button>
           <button class="bk-ic danger" data-unsave="${b.id}" title="빼기" aria-label="빼기">✕</button>
         </div>
       </div>
@@ -1206,6 +1265,9 @@ async function viewLibrary() {
   });
   view.querySelectorAll('[data-copy]').forEach(btn => { btn.onclick = () => openCopyModal(Number(btn.dataset.copy)); });
   view.querySelectorAll('[data-read]').forEach(btn => { btn.onclick = () => location.hash = `#/routine?book=${btn.dataset.read}`; });
+  view.querySelectorAll('[data-note]').forEach(btn => {
+    btn.onclick = () => openNoteModal(libBooks.find(b => b.id === Number(btn.dataset.note)));
+  });
   view.querySelectorAll('[data-delq]').forEach(btn => {
     btn.onclick = async () => { await api(`/api/quotes/${btn.dataset.delq}`, { method: 'DELETE' }); toast('문장을 지웠어요.'); viewLibrary(); };
   });
@@ -1227,7 +1289,9 @@ function openBookDetail(b) {
   back.className = 'modal-back';
   back.innerHTML = `
     <div class="modal wide book-detail" style="--c:${c}">
-      <div class="bd-band">${iconOf(b.emotion)} ${esc(b.emotion)}${b.village ? ` <span class="to">→</span> ${esc(b.village.name)}` : ''}</div>
+      <div class="bd-band">${b.emotion
+        ? `${iconOf(b.emotion)} ${esc(b.emotion)}${b.village ? ` <span class="to">→</span> ${esc(b.village.name)}` : ''}`
+        : '📖 직접 담은 책'}</div>
       <h2>${esc(b.title)}</h2>
       <p class="sub">${esc(b.author)}${b.minutes ? ` · 약 ${b.minutes}분` : ''}</p>
       ${b.why ? `<p class="bd-why">${esc(b.why)}</p>` : ''}
@@ -1237,6 +1301,7 @@ function openBookDetail(b) {
       <div class="bd-actions">
         <button class="btn sage" id="bd-copy">✍️ 필사하기</button>
         <button class="btn ghost" id="bd-read">⏱️ 읽기모드</button>
+        <button class="btn ghost" id="bd-note">📝 기록하기</button>
       </div>
       <div class="store-row">
         <span class="store-label">이 책 보러가기</span>
@@ -1251,6 +1316,7 @@ function openBookDetail(b) {
   back.querySelector('#bd-close').onclick = close;
   back.querySelector('#bd-copy').onclick = () => { close(); openCopyModal(b.id); };
   back.querySelector('#bd-read').onclick = () => { close(); location.hash = `#/routine?book=${b.id}`; };
+  back.querySelector('#bd-note').onclick = () => { close(); openNoteModal(b); };
 }
 
 // ── 화면: 10분 독서 루틴 ─────────────────────────
@@ -1264,7 +1330,8 @@ async function viewRoutine(params) {
   if (!state.me) return needLogin('10분 독서 루틴');
   const bookId = Number(params.get('book')) || null;
   const { books } = await api('/api/saves');
-  const target = books.find(b => b.id === bookId) || books[0] || null;
+  const savedBooks = books;
+  let target = books.find(b => b.id === bookId) || null;
   let remaining = 10 * 60, moodBefore = 3, moodAfter = null, running = false;
 
   const scale = (name, cur) => `
@@ -1279,12 +1346,25 @@ async function viewRoutine(params) {
     view.innerHTML = `
       <h1>10분 독서 루틴</h1>
       <p class="hint" style="margin-top:-6px">긴 독서가 어려운 날에도 10분은 넘길 수 있어요. 읽기 전과 후의 마음을 비교해 보세요.</p>
-      ${target ? `
-        <div class="panel mt">
-          <h3>${esc(target.title)}</h3>
-          <p class="sub">${esc(target.author)} · 오늘 읽을 분량: <b>${esc(target.portion)}</b></p>
-          <div class="ask"><strong>읽고 나서 생각할 질문</strong>${esc(target.question)}</div>
-        </div>` : `<div class="empty mt"><span class="big">📚</span>먼저 감정 체크인에서 책을 담아 주세요.</div>`}
+      <div class="panel mt routine-pick">
+        ${target ? `
+          <div class="routine-book">
+            ${target.cover ? `<img class="rb-cover" src="${esc(target.cover)}" alt="" onerror="this.remove()">` : ''}
+            <div class="rb-info">
+              <h3>${esc(target.title)}</h3>
+              <p class="sub">${esc(target.author)}${target.portion ? ` · 오늘 읽을 분량: <b>${esc(target.portion)}</b>` : ''}</p>
+            </div>
+            <button class="btn ghost small" id="pickBook">다른 책</button>
+          </div>
+          ${target.question ? `<div class="ask" style="margin-top:12px"><strong>읽고 나서 생각할 질문</strong>${esc(target.question)}</div>` : ''}
+        ` : `
+          <div class="empty-pick">
+            <span class="big">📚</span>
+            <p>어떤 책을 읽으세요? <b>내 서재에서 고르거나</b>, 검색해서 넣어 보세요.</p>
+            <button class="btn sage" id="pickBook">읽을 책 고르기</button>
+          </div>
+        `}
+      </div>
       ${target ? `
       <h2 class="section-title mt">1 · 읽기 전, 지금 마음은?</h2>${scale('before', moodBefore)}
       <div class="timer-wrap mt">
@@ -1300,6 +1380,11 @@ async function viewRoutine(params) {
         <input type="text" id="note" placeholder="읽고 나서 든 생각을 짧게 적어 두세요."></div>
       <button class="btn sage" id="save" ${moodAfter ? '' : 'disabled'}>오늘의 독서 기록하기 <span class="pilltag">+20</span></button>
       ` : ''}`;
+
+    // 책 고르기(서재/검색)는 target 유무와 상관없이 항상 동작해야 한다.
+    view.querySelector('#pickBook')?.addEventListener('click', () => {
+      openBookPicker(savedBooks, picked => { target = picked; clearInterval(timerId); remaining = 10 * 60; running = false; draw(); });
+    });
     if (!target) return;
 
     view.querySelectorAll('[data-scale]').forEach(group => {
@@ -1328,11 +1413,13 @@ async function viewRoutine(params) {
     };
     view.querySelector('#reset').onclick = () => { clearInterval(timerId); remaining = 10 * 60; running = false; draw(); };
     view.querySelector('#save').onclick = async () => {
-      const note = view.querySelector('#note').value;
+      const noteEl = view.querySelector('#note');
+      const note = noteEl ? noteEl.value : '';
       const minutes = Math.max(1, Math.round((10 * 60 - remaining) / 60)) || 10;
       try {
-        const { delta, award } = await api('/api/routines', { method: 'POST', body: { bookId: target.id, minutes, moodBefore, moodAfter, note } });
+        const { delta, award, autoSaved } = await api('/api/routines', { method: 'POST', body: { bookId: target.id, minutes, moodBefore, moodAfter, note } });
         clearInterval(timerId);
+        if (autoSaved) toast(`『${target.title}』이(가) 내 서재에 담겼어요 📚`);
         flashAward(award);
         if (!award || !award.amount) toast(delta > 0 ? `읽고 나서 마음이 ${delta}칸 가벼워졌어요 🌤️` : '기록했어요. 오늘은 여기까지도 충분해요.');
         location.hash = '#/character';
@@ -1340,6 +1427,81 @@ async function viewRoutine(params) {
     };
   }
   draw();
+}
+
+// 10분 루틴에서 읽을 책 고르기 — 내 서재 또는 알라딘 검색
+function openBookPicker(savedBooks, onPick) {
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  const libHTML = (savedBooks && savedBooks.length)
+    ? savedBooks.map(b => `
+        <button class="pick-item" data-saved="${b.id}">
+          ${b.cover ? `<img src="${esc(b.cover)}" alt="" onerror="this.remove()">` : '<span class="pick-noimg">📖</span>'}
+          <span class="pick-meta"><b>${esc(b.title)}</b><small>${esc(b.author)}</small></span>
+        </button>`).join('')
+    : `<p class="hint" style="padding:4px 2px">아직 서재에 담은 책이 없어요. 아래에서 검색해 넣어 보세요.</p>`;
+  back.innerHTML = `
+    <div class="modal bookpicker">
+      <h2>읽을 책 고르기</h2>
+      <div class="pick-search">
+        <input type="text" id="pickQ" placeholder="책 제목이나 저자로 검색" autocomplete="off">
+        <button class="btn small" id="pickSearchBtn">검색</button>
+      </div>
+      <div class="pick-results" id="pickResults"></div>
+      <div class="pick-lib">
+        <div class="pick-label">내 서재</div>
+        <div class="pick-list">${libHTML}</div>
+      </div>
+      <button class="linkish mt" id="pickClose" style="display:block;margin:14px auto 0">닫기</button>
+    </div>`;
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.onclick = e => { if (e.target === back) close(); };
+  back.querySelector('#pickClose').onclick = close;
+
+  // 내 서재에서 고르기
+  back.querySelectorAll('[data-saved]').forEach(btn => {
+    btn.onclick = () => {
+      const b = savedBooks.find(x => x.id === Number(btn.dataset.saved));
+      if (b) { close(); onPick(b); }
+    };
+  });
+
+  // 알라딘 검색
+  const q = back.querySelector('#pickQ');
+  const results = back.querySelector('#pickResults');
+  let searching = false;
+  const runSearch = async () => {
+    const term = q.value.trim();
+    if (term.length < 2) { results.innerHTML = `<p class="hint" style="padding:6px 2px">두 글자 이상 입력해 주세요.</p>`; return; }
+    if (searching) return;
+    searching = true;
+    results.innerHTML = `<p class="hint" style="padding:6px 2px">검색 중…</p>`;
+    try {
+      const { results: list } = await api(`/api/books/search?q=${encodeURIComponent(term)}`);
+      if (!list.length) { results.innerHTML = `<p class="hint" style="padding:6px 2px">검색 결과가 없어요.</p>`; return; }
+      results.innerHTML = list.map((r, i) => `
+        <button class="pick-item" data-idx="${i}">
+          ${r.cover ? `<img src="${esc(r.cover)}" alt="" onerror="this.remove()">` : '<span class="pick-noimg">📖</span>'}
+          <span class="pick-meta"><b>${esc(r.title)}</b><small>${esc(r.author)}</small></span>
+        </button>`).join('');
+      results.querySelectorAll('[data-idx]').forEach(btn => {
+        btn.onclick = async () => {
+          const r = list[Number(btn.dataset.idx)];
+          btn.disabled = true;
+          try {
+            const { book } = await api('/api/books/custom', { method: 'POST', body: { title: r.title, author: r.author, cover: r.cover, isbn13: r.isbn13, itemId: r.itemId } });
+            close(); onPick(book);
+          } catch (err) { btn.disabled = false; toast(err.message); }
+        };
+      });
+    } catch (err) {
+      results.innerHTML = `<p class="hint" style="padding:6px 2px">${esc(err.message || '검색에 실패했어요.')}</p>`;
+    } finally { searching = false; }
+  };
+  back.querySelector('#pickSearchBtn').onclick = runSearch;
+  q.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); runSearch(); } });
+  setTimeout(() => q.focus(), 50);
 }
 
 // ── 화면: 감정 독서 모임 ─────────────────────────
