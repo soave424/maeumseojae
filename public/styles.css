@@ -180,6 +180,16 @@ button.btn.small { padding: 7px 13px; font-size: 13.5px; }
 .card h3 { margin: 0; font-size: 20px; }
 .card .author { font-size: 13.5px; color: var(--ink-2); margin-top: -6px; }
 
+/* 추천 카드 상단: 표지 + 제목 */
+.card-head { display: flex; gap: 14px; align-items: flex-start; }
+.card-head-text { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card-cover {
+  flex: 0 0 auto; width: 68px; height: 98px; object-fit: cover;
+  border-radius: 5px; background: var(--paper-3);
+  box-shadow: 0 3px 10px -3px rgba(43,38,32,.4), 0 0 0 1px rgba(43,38,32,.06);
+}
+.card-head.no-cover .card-cover { display: none; }
+
 .card .why { font-size: 14.5px; color: var(--ink-2); margin: 0; }
 
 .quote {

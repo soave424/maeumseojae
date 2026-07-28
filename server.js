@@ -12,6 +12,15 @@ import {
 import { seedIfEmpty, MOODS, VILLAGES, MODES, STAGES, BUTTERFLIES, POINT_RULES, PROGRAMS, MASTERS, MEMBERSHIPS, HASHTAGS, SUGGEST, CLASSIC_QUOTES } from './seed.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// 책 표지·ISBN (알라딘 Open API로 미리 받아 둔 매핑). 없으면 표지 없이 동작.
+// 갱신: TTB_KEY=... node scripts/fetch-covers.js
+let COVERS = {};
+try {
+  const { createRequire } = await import('module');
+  COVERS = createRequire(import.meta.url)('./covers.json');
+} catch { COVERS = {}; }
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PROD = process.env.NODE_ENV === 'production';
@@ -204,6 +213,7 @@ function villageForEmotion(emo) {
 function bookCard(b) {
   const q = encodeURIComponent(b.title);
   const v = villageForEmotion(b.emotion);
+  const cv = COVERS[b.title] || null;
   return {
     id: b.id,
     title: b.title,
@@ -217,9 +227,14 @@ function bookCard(b) {
     curatorNote: b.curatorNote,
     question: b.question,
     situations: b.situations || [],
+    cover: cv?.cover || null,
+    isbn13: cv?.isbn13 || null,
     links: {
       kyobo: `https://search.kyobobook.co.kr/search?keyword=${q}`,
-      aladin: `https://www.aladin.co.kr/search/wsearchresult.aspx?SearchWord=${q}`
+      // 표지를 확보한 책은 알라딘 상품 페이지로 바로 연결(제휴 파라미터 제거)
+      aladin: cv?.link
+        ? cv.link.replace(/&?partner=openAPI/g, '').replace(/&?start=api/g, '')
+        : `https://www.aladin.co.kr/search/wsearchresult.aspx?SearchWord=${q}`
     }
   };
 }

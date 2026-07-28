@@ -262,11 +262,19 @@ function cardHTML(pick, situations = []) {
   const match = (b.situations || []).filter(s => situations.includes(s));
   const matchBadge = match.length
     ? `<div class="match-badge">🎯 ‘${esc(match.join(' · '))}’ 상황과 맞닿은 책</div>` : '';
+  const cover = b.cover
+    ? `<img class="card-cover" src="${b.cover}" alt="${esc(b.title)} 표지" loading="lazy" onerror="this.closest('.card-head')?.classList.add('no-cover');this.remove();">`
+    : '';
   return `
   <article class="card ${pick.key}">
-    <div class="card-mode">${pick.icon} ${esc(pick.label)}</div>
-    <h3>${esc(b.title)}</h3>
-    <div class="author">${esc(b.author)}</div>
+    <div class="card-head${b.cover ? '' : ' no-cover'}">
+      ${cover}
+      <div class="card-head-text">
+        <div class="card-mode">${pick.icon} ${esc(pick.label)}</div>
+        <h3>${esc(b.title)}</h3>
+        <div class="author">${esc(b.author)}</div>
+      </div>
+    </div>
     ${matchBadge}
     <p class="why clamp3">${esc(b.why)}</p>
     <button class="card-toggle" data-more="${b.id}">자세히 보기 ▾</button>
