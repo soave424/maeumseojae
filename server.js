@@ -21,6 +21,9 @@ try {
   COVERS = createRequire(import.meta.url)('./covers.json');
 } catch { COVERS = {}; }
 
+// 알라딘 Open API 키 (책 검색용). 배포 시 TTB_KEY 로 덮어쓸 수 있다.
+const TTB_KEY = process.env.TTB_KEY || 'ttbsoave4240955001';
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PROD = process.env.NODE_ENV === 'production';
@@ -85,6 +88,7 @@ function publicUser(u) {
   const st = stageView(u, stageOf(u.points));
   return {
     id: u.id, username: u.username, nickname: u.nickname, plan: u.plan,
+    role: u.role || 'member', classId: u.classId || null,
     points: u.points, charName: u.charName, stage: { name: st.name, emoji: st.emoji, img: st.img, aura: st.aura }
   };
 }
@@ -214,12 +218,19 @@ function bookCard(b) {
   const q = encodeURIComponent(b.title);
   const v = villageForEmotion(b.emotion);
   const cv = COVERS[b.title] || null;
+  // 커스텀(검색으로 담은) 책은 책 레코드에 표지·isbn·itemId 를 직접 들고 있다.
+  const cover = b.cover || cv?.cover || null;
+  const isbn13 = b.isbn13 || cv?.isbn13 || null;
+  const productLink = b.itemId
+    ? `https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=${b.itemId}`
+    : (cv?.link ? cv.link.replace(/&?partner=openAPI/g, '').replace(/&?start=api/g, '') : null);
   return {
     id: b.id,
     title: b.title,
     author: b.author,
     mode: b.mode,
     emotion: b.emotion,
+    custom: !!b.custom,
     village: v ? { key: v.key, name: v.name, color: v.color, char: v.char, vibe: v.vibe } : null,
     minutes: b.minutes,
     portion: b.portion,
@@ -227,14 +238,11 @@ function bookCard(b) {
     curatorNote: b.curatorNote,
     question: b.question,
     situations: b.situations || [],
-    cover: cv?.cover || null,
-    isbn13: cv?.isbn13 || null,
+    cover,
+    isbn13,
     links: {
       kyobo: `https://search.kyobobook.co.kr/search?keyword=${q}`,
-      // 표지를 확보한 책은 알라딘 상품 페이지로 바로 연결(제휴 파라미터 제거)
-      aladin: cv?.link
-        ? cv.link.replace(/&?partner=openAPI/g, '').replace(/&?start=api/g, '')
-        : `https://www.aladin.co.kr/search/wsearchresult.aspx?SearchWord=${q}`
+      aladin: productLink || `https://www.aladin.co.kr/search/wsearchresult.aspx?SearchWord=${q}`
     }
   };
 }
@@ -477,6 +485,101 @@ app.post('/api/saves/:bookId', requireAuth, (req, res) => {
   res.json({ saved: !existing, award: awardRes });
 });
 
+// ---------- 알라딘 책 검색 (10분 루틴에서 직접 책 넣기) ----------
+function upsizeCover(url) {
+  return (url || '').replace('/coversum/', '/cover200/');
+}
+app.get('/api/books/search', requireAuth, async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.json({ results: [] });
+  if (!rateLimit(req.user.id, 'search', 600)) {
+    return res.status(429).json({ error: '검색이 너무 잦아요. 잠시 후 다시 시도해 주세요.' });
+  }
+  try {
+    const url = `https://www.aladin.co.kr/ttb/api/ItemSearch.aspx?ttbkey=${TTB_KEY}`
+      + `&Query=${encodeURIComponent(q)}&QueryType=Keyword&MaxResults=10&start=1`
+      + `&SearchTarget=Book&Sort=SalesPoint&output=js&Version=20131101`;
+    const data = JSON.parse(await (await fetch(url)).text());
+    if (data.errorCode) return res.status(502).json({ error: '검색 서비스를 불러오지 못했어요.' });
+    const results = (data.item || []).map(it => ({
+      title: String(it.title || '').replace(/\s*-\s*.*$/, '').trim() || it.title,
+      fullTitle: it.title,
+      author: (it.author || '').replace(/\s*\(지은이\).*$/, '').trim() || it.author,
+      cover: upsizeCover(it.cover),
+      isbn13: it.isbn13 || '',
+      itemId: it.itemId || null
+    })).filter(r => r.title);
+    res.json({ results });
+  } catch {
+    res.status(502).json({ error: '검색 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.' });
+  }
+});
+
+// 검색 결과로 고른 책을 카탈로그에 없으면 새로 만들어(커스텀) id 를 돌려준다.
+app.post('/api/books/custom', requireAuth, (req, res) => {
+  const title = String(req.body?.title || '').trim().slice(0, 200);
+  const author = String(req.body?.author || '').trim().slice(0, 200);
+  const isbn13 = String(req.body?.isbn13 || '').trim().slice(0, 20);
+  const cover = String(req.body?.cover || '').trim().slice(0, 400);
+  const itemId = Number(req.body?.itemId) || null;
+  if (title.length < 1) return res.status(400).json({ error: '책 제목이 필요해요.' });
+  if (!isClean(title) || (author && !isClean(author))) {
+    return res.status(400).json({ error: '부적절한 표현이 포함되어 있어요.' });
+  }
+  // 이미 있는 책이면(카탈로그·커스텀 불문) 재사용 — isbn 우선, 없으면 제목+저자
+  const norm = s => String(s || '').replace(/\s+/g, '').toLowerCase();
+  let book = D().books.find(b =>
+    (isbn13 && b.isbn13 === isbn13) ||
+    (norm(b.title) === norm(title) && norm(b.author) === norm(author)));
+  if (!book) {
+    book = {
+      id: db.id(), audience: 'adult', custom: true,
+      title, author, mode: 'light', emotion: null, alsoFor: [], situations: [],
+      minutes: 10, portion: '오늘 읽고 싶은 만큼',
+      why: '', curatorNote: '', question: '',
+      cover: cover || null, isbn13: isbn13 || null, itemId
+    };
+    D().books.push(book);
+    db.save(true);
+  }
+  res.json({ book: bookCard(book) });
+});
+
+// ---------- 서재 메모(기록하기) ----------
+app.get('/api/notes', requireAuth, (req, res) => {
+  const list = D().notes
+    .filter(n => n.userId === req.user.id)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map(n => {
+      const b = D().books.find(x => x.id === n.bookId);
+      return { id: n.id, bookId: n.bookId, text: n.text, createdAt: n.createdAt, title: b?.title || '', author: b?.author || '' };
+    });
+  res.json({ notes: list });
+});
+
+app.post('/api/notes', requireAuth, (req, res) => {
+  const bookId = Number(req.body?.bookId) || null;
+  const text = String(req.body?.text || '').trim().slice(0, 1000);
+  if (!bookId || !D().books.some(b => b.id === bookId)) return res.status(404).json({ error: '책을 찾을 수 없습니다.' });
+  if (text.length < 1) return res.status(400).json({ error: '메모를 입력해 주세요.' });
+  if (!isClean(text)) return res.status(400).json({ error: '부적절한 표현이 포함되어 있어요.' });
+  const n = { id: db.id(), userId: req.user.id, bookId, text, createdAt: Date.now() };
+  D().notes.push(n);
+  const awardRes = awardOnce(req.user, `note:${n.id}`, 5, '독서 메모');
+  db.save(true);
+  res.json({ ok: true, note: { id: n.id, bookId, text: n.text, createdAt: n.createdAt }, award: awardRes });
+});
+
+app.delete('/api/notes/:id', requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  const n = D().notes.find(x => x.id === id);
+  if (!n) return res.status(404).json({ error: '메모를 찾을 수 없습니다.' });
+  if (n.userId !== req.user.id) return res.status(403).json({ error: '본인 메모만 지울 수 있어요.' });
+  D().notes = D().notes.filter(x => x.id !== id);
+  db.save(true);
+  res.json({ ok: true });
+});
+
 // ---------- 문장 저장 ----------
 app.get('/api/quotes', requireAuth, (req, res) => {
   const list = D().quotes
@@ -522,6 +625,16 @@ app.post('/api/routines', requireAuth, (req, res) => {
 
   const r = { id: db.id(), userId: req.user.id, bookId, minutes, moodBefore, moodAfter, note, createdAt: Date.now() };
   D().routines.push(r);
+
+  // 10분 읽은 책은 내 서재에 자동으로 담긴다 (아직 없을 때만).
+  let autoSaved = false;
+  if (bookId && D().books.some(b => b.id === bookId)
+      && !D().saves.some(s => s.userId === req.user.id && s.bookId === bookId)) {
+    D().saves.push({ userId: req.user.id, bookId, destinationVillage: null, createdAt: Date.now() });
+    awardOnce(req.user, `save:${bookId}`, 5, '책 담기');
+    autoSaved = true;
+  }
+
   // 하루 3번까지 기본 20점, 읽고 나서 마음이 나아졌으면 보너스 10점
   let awardRes = dailyAward(req.user, 'routine', 3, 20, '10분 독서');
   if (moodAfter > moodBefore) {
@@ -529,7 +642,7 @@ app.post('/api/routines', requireAuth, (req, res) => {
     awardRes = { amount: awardRes.amount + 10, points: bonus.points, levelUp: awardRes.levelUp || bonus.levelUp, stage: bonus.stage, stageEmoji: bonus.stageEmoji };
   }
   db.save(true);
-  res.json({ ok: true, delta: moodAfter - moodBefore, award: awardRes });
+  res.json({ ok: true, delta: moodAfter - moodBefore, award: awardRes, autoSaved });
 });
 
 // ---------- 주간 리포트 (§4 고객 관계, §12 성공 지표) ----------
@@ -644,6 +757,219 @@ app.get('/api/classroom', (req, res) => {
     links: { kyobo: `https://search.kyobobook.co.kr/search?keyword=${encodeURIComponent(b.title)}` }
   }));
   res.json({ books });
+});
+
+// ===== 학급 운영: 교사/학생 · 대시보드 · 학급 공유 =====
+const MONTH = 30 * DAY;
+function genClassCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 헷갈리는 글자(0,O,1,I) 제외
+  let code;
+  do {
+    code = Array.from({ length: 6 }, () => chars[Math.floor(hashOf(String(db.data.seq++) + code) % chars.length)]).join('');
+  } while (D().classes.some(c => c.code === code));
+  return code;
+}
+function genPin() {
+  return String(1000 + (hashOf(String(db.data.seq++) + 'pin') % 9000));
+}
+function classOfUser(u) {
+  if (!u) return null;
+  if (u.role === 'teacher') return D().classes.find(c => c.teacherId === u.id) || null;
+  if (u.role === 'student' && u.classId) return D().classes.find(c => c.id === u.classId) || null;
+  return null;
+}
+function studentName(u) { return u?.nickname || '학생'; }
+
+// 한 사람의 최근 30일 활동 요약
+function monthStats(uid) {
+  const since = Date.now() - MONTH;
+  const checkins = D().checkins.filter(c => c.userId === uid && c.createdAt >= since);
+  const routines = D().routines.filter(r => r.userId === uid && r.createdAt >= since);
+  const notes = D().notes.filter(n => n.userId === uid && n.createdAt >= since);
+  const saves = D().saves.filter(s => s.userId === uid);
+  const emo = {};
+  for (const c of checkins) emo[c.emotion] = (emo[c.emotion] || 0) + 1;
+  const days = new Set([...checkins, ...routines, ...notes].map(x => new Date(x.createdAt).toDateString()));
+  const deltas = routines.map(r => r.moodAfter - r.moodBefore);
+  const avgDelta = deltas.length ? +(deltas.reduce((a, b) => a + b, 0) / deltas.length).toFixed(1) : 0;
+  return {
+    checkins: checkins.length, routines: routines.length, notes: notes.length,
+    saves: saves.length, activeDays: days.size, minutes: routines.reduce((a, r) => a + r.minutes, 0),
+    avgDelta, emotions: emo
+  };
+}
+
+// 교사 계정으로 전환하며 학급 만들기 (없으면 생성, 있으면 그대로)
+app.post('/api/class', requireAuth, (req, res) => {
+  const u = req.user;
+  if (u.role === 'student') return res.status(403).json({ error: '학생 계정으로는 학급을 만들 수 없어요.' });
+  let cls = classOfUser(u);
+  if (!cls) {
+    const name = String(req.body?.name || '').trim().slice(0, 40) || `${u.nickname} 선생님의 반`;
+    if (!isClean(name)) return res.status(400).json({ error: '학급 이름에 부적절한 표현이 있어요.' });
+    u.role = 'teacher';
+    cls = { id: db.id(), teacherId: u.id, name, code: genClassCode(), createdAt: Date.now() };
+    D().classes.push(cls);
+    db.save(true);
+  }
+  res.json({ class: cls });
+});
+
+// 내 학급 컨텍스트 (교사/학생/미소속)
+app.get('/api/class', requireAuth, (req, res) => {
+  const u = req.user;
+  const cls = classOfUser(u);
+  if (!cls) return res.json({ role: u.role || 'member', class: null });
+  if (u.role === 'teacher') {
+    const students = D().users.filter(s => s.role === 'student' && s.classId === cls.id)
+      .map(s => {
+        const st = monthStats(s.id);
+        return { id: s.id, name: studentName(s), pin: s.pinPlain || null, activeDays: st.activeDays, checkins: st.checkins, routines: st.routines };
+      });
+    return res.json({ role: 'teacher', class: { id: cls.id, name: cls.name, code: cls.code }, students });
+  }
+  return res.json({ role: 'student', class: { id: cls.id, name: cls.name, code: cls.code } });
+});
+
+// 학생 등록 (교사)
+app.post('/api/class/students', requireAuth, (req, res) => {
+  const cls = classOfUser(req.user);
+  if (!cls || req.user.role !== 'teacher') return res.status(403).json({ error: '교사만 학생을 등록할 수 있어요.' });
+  const name = String(req.body?.name || '').trim().slice(0, 20);
+  if (name.length < 1) return res.status(400).json({ error: '학생 이름을 입력해 주세요.' });
+  if (!isClean(name)) return res.status(400).json({ error: '이름에 부적절한 표현이 있어요.' });
+  const pin = String(req.body?.pin || '').replace(/\D/g, '').slice(0, 4) || genPin();
+  const student = {
+    id: db.id(), username: `stu_${cls.code}_${db.data.seq}`, nickname: name,
+    role: 'student', classId: cls.id, plan: 'free',
+    pinPlain: pin, passwordHash: '', points: 0, pointLog: [], rewardedKeys: [], charName: null,
+    createdAt: Date.now()
+  };
+  D().users.push(student);
+  db.save(true);
+  res.json({ student: { id: student.id, name, pin } });
+});
+
+// 학생 정보 수정: 이름/핀 (교사)
+app.patch('/api/class/students/:id', requireAuth, (req, res) => {
+  const cls = classOfUser(req.user);
+  if (!cls || req.user.role !== 'teacher') return res.status(403).json({ error: '권한이 없어요.' });
+  const s = D().users.find(u => u.id === Number(req.params.id) && u.classId === cls.id && u.role === 'student');
+  if (!s) return res.status(404).json({ error: '학생을 찾을 수 없어요.' });
+  if (req.body?.name) {
+    const name = String(req.body.name).trim().slice(0, 20);
+    if (name && isClean(name)) s.nickname = name;
+  }
+  if (req.body?.resetPin) s.pinPlain = genPin();
+  db.save(true);
+  res.json({ student: { id: s.id, name: s.nickname, pin: s.pinPlain } });
+});
+
+// 학생 삭제 (교사)
+app.delete('/api/class/students/:id', requireAuth, (req, res) => {
+  const cls = classOfUser(req.user);
+  if (!cls || req.user.role !== 'teacher') return res.status(403).json({ error: '권한이 없어요.' });
+  const id = Number(req.params.id);
+  const s = D().users.find(u => u.id === id && u.classId === cls.id && u.role === 'student');
+  if (!s) return res.status(404).json({ error: '학생을 찾을 수 없어요.' });
+  D().users = D().users.filter(u => u.id !== id);
+  for (const t of Object.keys(D().sessions)) if (D().sessions[t] === id) delete D().sessions[t];
+  db.save(true);
+  res.json({ ok: true });
+});
+
+// 반 코드로 로스터(이름 목록) 가져오기 — 로그인 전 이름 고르기용
+app.get('/api/class/roster', (req, res) => {
+  const code = String(req.query.code || '').trim().toUpperCase();
+  const cls = D().classes.find(c => c.code === code);
+  if (!cls) return res.status(404).json({ error: '반 코드를 찾을 수 없어요.' });
+  const students = D().users.filter(u => u.role === 'student' && u.classId === cls.id)
+    .map(u => ({ id: u.id, name: u.nickname }));
+  res.json({ className: cls.name, students });
+});
+
+// 학생 로그인 (반 코드 + 이름(id) + PIN)
+app.post('/api/class/login', (req, res) => {
+  const code = String(req.body?.code || '').trim().toUpperCase();
+  const studentId = Number(req.body?.studentId) || null;
+  const pin = String(req.body?.pin || '').replace(/\D/g, '');
+  const cls = D().classes.find(c => c.code === code);
+  if (!cls) return res.status(404).json({ error: '반 코드를 찾을 수 없어요.' });
+  const s = D().users.find(u => u.id === studentId && u.classId === cls.id && u.role === 'student');
+  if (!s || s.pinPlain !== pin) return res.status(401).json({ error: '이름 또는 PIN이 올바르지 않아요.' });
+  const token = crypto.randomBytes(24).toString('hex');
+  D().sessions[token] = s.id;
+  db.save(true);
+  res.cookie('ms_token', token, COOKIE);
+  res.json({ user: publicUser(s) });
+});
+
+// 내 한 달 대시보드 (학생 본인/누구나)
+app.get('/api/me/dashboard', requireAuth, (req, res) => {
+  const st = monthStats(req.user.id);
+  const emotions = MOODS.map(m => ({ key: m.key, icon: m.icon, color: m.color, count: st.emotions[m.key] || 0 }))
+    .filter(e => e.count > 0).sort((a, b) => b.count - a.count);
+  res.json({
+    nickname: req.user.nickname, points: req.user.points || 0,
+    stats: { activeDays: st.activeDays, checkins: st.checkins, routines: st.routines, minutes: st.minutes, notes: st.notes, saves: st.saves, avgDelta: st.avgDelta },
+    emotions
+  });
+});
+
+// 학급 공유 페이지 — 읽은 책·기록은 이름과 함께, 감정은 익명 집계
+app.get('/api/class/share', requireAuth, (req, res) => {
+  const cls = classOfUser(req.user);
+  if (!cls) return res.status(403).json({ error: '학급에 소속되어 있지 않아요.' });
+  const since = Date.now() - MONTH;
+  const students = D().users.filter(u => u.role === 'student' && u.classId === cls.id);
+  const sids = new Set(students.map(s => s.id));
+
+  // 읽은 책 (10분 루틴 기록 기준) — 이름과 함께, 책별로 읽은 학생 모음
+  const readMap = new Map();
+  for (const r of D().routines.filter(x => sids.has(x.userId) && x.createdAt >= since)) {
+    const b = D().books.find(x => x.id === r.bookId); if (!b) continue;
+    const key = b.id;
+    if (!readMap.has(key)) readMap.set(key, { title: b.title, author: b.author, cover: bookCard(b).cover, readers: new Set() });
+    readMap.get(key).readers.add(studentName(students.find(s => s.id === r.userId)));
+  }
+  const books = [...readMap.values()].map(x => ({ title: x.title, author: x.author, cover: x.cover, readers: [...x.readers] }))
+    .sort((a, b) => b.readers.length - a.readers.length).slice(0, 40);
+
+  // 기록(메모) — 이름과 함께
+  const records = D().notes.filter(n => sids.has(n.userId) && n.createdAt >= since)
+    .sort((a, b) => b.createdAt - a.createdAt).slice(0, 60)
+    .map(n => {
+      const s = students.find(x => x.id === n.userId);
+      const b = D().books.find(x => x.id === n.bookId);
+      return { name: studentName(s), text: n.text, bookTitle: b?.title || '', createdAt: n.createdAt };
+    });
+
+  // 반 감정 분위기 — 익명 집계 (한 달)
+  const emo = {};
+  for (const c of D().checkins.filter(x => sids.has(x.userId) && x.createdAt >= since)) emo[c.emotion] = (emo[c.emotion] || 0) + 1;
+  const total = Object.values(emo).reduce((a, b) => a + b, 0) || 1;
+  const emotions = MOODS.map(m => ({ key: m.key, icon: m.icon, color: m.color, count: emo[m.key] || 0, pct: Math.round((emo[m.key] || 0) / total * 100) }))
+    .filter(e => e.count > 0).sort((a, b) => b.count - a.count);
+
+  res.json({ className: cls.name, studentCount: students.length, books, records, emotions });
+});
+
+// 교사 대시보드 — 학생별 월간 요약 + 반 감정 익명 집계
+app.get('/api/class/dashboard', requireAuth, (req, res) => {
+  const cls = classOfUser(req.user);
+  if (!cls || req.user.role !== 'teacher') return res.status(403).json({ error: '교사만 볼 수 있어요.' });
+  const students = D().users.filter(u => u.role === 'student' && u.classId === cls.id).map(s => {
+    const st = monthStats(s.id);
+    return { id: s.id, name: studentName(s), activeDays: st.activeDays, checkins: st.checkins, routines: st.routines, notes: st.notes, avgDelta: st.avgDelta };
+  });
+  const since = Date.now() - MONTH;
+  const sids = new Set(students.map(s => s.id));
+  const emo = {};
+  for (const c of D().checkins.filter(x => sids.has(x.userId) && x.createdAt >= since)) emo[c.emotion] = (emo[c.emotion] || 0) + 1;
+  const total = Object.values(emo).reduce((a, b) => a + b, 0) || 1;
+  const emotions = MOODS.map(m => ({ key: m.key, icon: m.icon, color: m.color, count: emo[m.key] || 0, pct: Math.round((emo[m.key] || 0) / total * 100) }))
+    .filter(e => e.count > 0).sort((a, b) => b.count - a.count);
+  res.json({ class: { name: cls.name, code: cls.code }, students, emotions });
 });
 
 // ---------- 동반자 "마음이" 성장 화면 ----------

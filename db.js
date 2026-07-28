@@ -15,12 +15,14 @@ const DATA_FILE = path.join(DATA_DIR, 'data.json');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const EMPTY = {
-  users: [],
+  users: [],          // 일반/교사/학생. role: undefined|'teacher'|'student', classId, pinHash
+  classes: [],        // { id, teacherId, name, code, createdAt } = 학급
   books: [],          // 큐레이션 도서 카탈로그 (시드)
   challenges: [],     // 감정 주제별 독서 챌린지 (시드)
   checkins: [],       // { userId, emotion, note, situations[], intensity, bookIds[], createdAt }
   saves: [],          // { userId, bookId, createdAt }  = 내 서재에 담은 책
   quotes: [],         // { id, userId, bookId, text, createdAt } = 저장한 문장
+  notes: [],          // { id, userId, bookId, text, createdAt } = 서재 책에 남긴 메모(기록)
   routines: [],       // { id, userId, bookId, minutes, moodBefore, moodAfter, note, createdAt }
   copies: [],         // { id, userId, bookId, text, accuracy, createdAt } = 필사 기록
   feedback: [],       // { checkinId, userId, helpful, comment, createdAt }
